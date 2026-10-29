@@ -256,7 +256,9 @@ export function clubSummaries(leagueId: string, season: string): ClubSeasonSumma
   const rows = getSeasonRows(season).filter((r) => r.league.id === leagueId)
   return clubsInLeague(leagueId).map((club) => {
     const mine = rows.filter((r) => r.club.id === club.id)
-    const totalMins = mine.reduce((a, r) => a + r.stats.mins, 0) || 1
+    // Average age counts only players whose age is known.
+    const aged = mine.filter((r) => r.age != null)
+    const agedMins = aged.reduce((a, r) => a + r.stats.mins, 0) || 1
     return {
       club,
       playersUsed: mine.length,
@@ -264,7 +266,7 @@ export function clubSummaries(leagueId: string, season: string): ClubSeasonSumma
       xg: mine.reduce((a, r) => a + r.stats.xg, 0),
       goalsAgainst: mine.reduce((a, r) => a + r.stats.goalsAgainst, 0),
       xga: mine.reduce((a, r) => a + r.stats.psxg, 0),
-      avgAge: mine.reduce((a, r) => a + (r.age ?? 0) * r.stats.mins, 0) / totalMins,
+      avgAge: aged.reduce((a, r) => a + r.age! * r.stats.mins, 0) / agedMins,
     }
   })
 }

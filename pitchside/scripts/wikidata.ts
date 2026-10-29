@@ -55,7 +55,9 @@ const clubTokens = (name: string) => new Set(normalize(name).split(' ').filter((
 function overlap(a: Set<string>, b: Set<string>) {
   let shared = 0
   for (const w of a) if (b.has(w) || [...b].some((x) => x.length > 3 && (x.startsWith(w) || w.startsWith(x)))) shared++
-  return shared / Math.max(1, Math.min(a.size, b.size))
+  // Share of the shorter name matched, plus share of the longer one as a tie-break,
+  // so "Inter Milan" prefers "Inter Milan" over "AC Milan".
+  return shared / Math.max(1, Math.min(a.size, b.size)) + (0.5 * shared) / Math.max(1, a.size, b.size)
 }
 
 async function main() {
@@ -76,18 +78,17 @@ async function main() {
         SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
       } GROUP BY ?team ?teamLabel`)
     const clubs = dataset.clubs.filter((c) => c.leagueId === league.id)
+    // Best pairs first across the whole league, so one club cannot take another's match
+    // (e.g. Real Madrid and Atlético Madrid both containing "Madrid").
+    const pairs = clubs
+      .flatMap((club) => teams.map((t) => ({ club, t, score: overlap(clubTokens(CLUB_ALIASES[club.name] ?? club.name), clubTokens(t.teamLabel.value)) })))
+      .filter((x) => x.score >= 0.5)
+      .sort((a, b) => b.score - a.score)
     const taken = new Set<string>()
     const clubQid = new Map<string, string>()
-    for (const club of clubs) {
-      const scored = teams
-        .map((t) => ({ t, score: overlap(clubTokens(CLUB_ALIASES[club.name] ?? club.name), clubTokens(t.teamLabel.value)) }))
-        .filter((x) => !taken.has(x.t.team.value))
-        .sort((a, b) => b.score - a.score)
-      const best = scored[0]
-      if (!best || best.score < 0.5) {
-        report.push(`  no Wikidata club for ${club.name}`)
-        continue
-      }
+    for (const { club, t } of pairs) {
+      if (clubQid.has(club.id) || taken.has(t.team.value)) continue
+      const best = { t }
       taken.add(best.t.team.value)
       clubQid.set(club.id, qid(best.t.team.value))
       matches.clubs[club.id] = {
@@ -97,6 +98,7 @@ async function main() {
         colors: best.t.hexes?.value ? best.t.hexes.value.split('|').map((h: string) => `#${h.toLowerCase()}`) : undefined,
       }
     }
+    for (const club of clubs) if (!clubQid.has(club.id)) report.push(`  no Wikidata club for ${club.name}`)
 
     // Players: everyone Wikidata lists at each club around 2015/16, with any names they go by.
     // One query per club keeps each well inside the query service's time limit.

@@ -435,7 +435,7 @@ function build() {
       }
     }
   }
-  for (const [id, tally] of stadiums) clubs.get(id)!.stadium = [...tally].sort((a, b) => b[1] - a[1])[0][0]
+  for (const [id, tally] of stadiums) clubs.get(id)!.stadium = [...tally].sort((a, b) => b[1] - a[1])[0][0].replace(/''/g, "'")
 
   // Add matches up per player and club.
   const rows = new Map<string, PlayerSeason>()

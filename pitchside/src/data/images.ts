@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-// Club crests and player photos (from `npm run data:images`). They are loaded
+// Club crests and player photos (from `npm run data:images`, split over several files). They are loaded
 // after the page appears, so the site never waits on them; until then, and for
 // anyone without an image, the drawn badge or silhouette is shown.
 
@@ -14,11 +14,17 @@ interface ImageSet {
 let images: ImageSet | null = null
 const listeners = new Set<() => void>()
 
-const loader = Object.values(import.meta.glob<ImageSet>('./real/images.json', { import: 'default' }))[0]
-loader?.().then((set) => {
-  images = set
-  for (const l of listeners) l()
-})
+// Each file is merged in as it arrives, so pictures appear progressively.
+for (const load of Object.values(import.meta.glob<ImageSet>('./real/images-*.json', { import: 'default' }))) {
+  load().then((set) => {
+    images = {
+      clubs: { ...images?.clubs, ...set.clubs },
+      players: { ...images?.players, ...set.players },
+      files: { ...images?.files, ...set.files },
+    }
+    for (const l of listeners) l()
+  })
+}
 
 const subscribe = (l: () => void) => {
   listeners.add(l)

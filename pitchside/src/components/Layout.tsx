@@ -88,10 +88,28 @@ export function Layout() {
         <div className="container footer-inner">
           <span>Pitchside · prototype</span>
           <span className="muted footer-source">
-            Data: {sourceLogo ? <img src={sourceLogo} alt={dataset.sourceName} className="source-logo" /> : dataset.sourceName} · Latest season: {dataset.currentSeason}
+            Data: <SourceCredits />
           </span>
         </div>
       </footer>
     </div>
+  )
+}
+
+/** Each data source with the seasons it supplies; StatsBomb's terms require its logo. */
+function SourceCredits() {
+  const bySource = new Map<string, string[]>()
+  for (const [season, source] of Object.entries(dataset.seasonSources ?? {})) bySource.set(source, [...(bySource.get(source) ?? []), season].sort())
+  if (!bySource.size) return <>{sourceLogo ? <img src={sourceLogo} alt={dataset.sourceName} className="source-logo" /> : dataset.sourceName}</>
+  return (
+    <>
+      {[...bySource].map(([source, seasons], i) => (
+        <span key={source} className="footer-source">
+          {i > 0 && ' · '}
+          {source.startsWith('StatsBomb') && sourceLogo ? <img src={sourceLogo} alt={source} className="source-logo" /> : source}{' '}
+          ({seasons.length > 1 ? `${seasons[0]} to ${seasons[seasons.length - 1]}` : seasons[0]})
+        </span>
+      ))}
+    </>
   )
 }

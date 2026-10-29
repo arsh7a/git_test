@@ -122,7 +122,10 @@ const ALL_METRICS: Metric[] = [
 ]
 
 /** The stats a metric reads, found by running it on a line that records every lookup. */
+const usedCache = new Map<string, StatKey[]>()
 function statsUsed(m: Metric): StatKey[] {
+  const cached = usedCache.get(m.id)
+  if (cached) return cached
   const used = new Set<StatKey>()
   const probe = new Proxy(EMPTY_LINE, {
     get: (_, key) => {
@@ -132,8 +135,12 @@ function statsUsed(m: Metric): StatKey[] {
   })
   m.value(probe)
   m.minVolume?.(probe)
+  usedCache.set(m.id, [...used])
   return [...used]
 }
+
+/** False when this line's source did not measure something the metric needs (stored as NaN). */
+export const isMeasured = (m: Metric, s: StatLine) => statsUsed(m).every((k) => !Number.isNaN(s[k]))
 
 const available = new Set<StatKey>(dataset.availableStats ?? STAT_KEYS)
 
@@ -152,7 +159,7 @@ export const firstAvailable = (...ids: string[]): string | undefined => ids.find
 export function metricValue(m: Metric, s: StatLine, per90: boolean): number | null {
   if (m.minVolume && !m.minVolume(s)) return null
   const v = m.value(s)
-  if (v == null) return null
+  if (v == null || Number.isNaN(v)) return null // NaN: not measured by this season's source
   if (per90 && m.per90) return s.mins > 0 ? v / (s.mins / 90) : null
   return v
 }
@@ -180,8 +187,8 @@ export const GROUP_SHORT: Record<PositionGroup, string> = {
 // Stats for each position's radar chart, best first. Each radar shows the first
 // 10 (8 for keepers) that the data source supports; the extras at the end of
 // each list stand in when richer stats such as xG are missing.
-const OUTFIELD_SPARES = ['rating', 'keyPasses', 'sotPct', 'dribblePct', 'duelsWon', 'duelPct', 'fouled', 'tackles', 'interceptions', 'blocks', 'passAtt']
-const RADAR_PREFERENCES: Record<PositionGroup, string[]> = {
+export const OUTFIELD_SPARES = ['rating', 'keyPasses', 'sotPct', 'dribblePct', 'duelsWon', 'duelPct', 'fouled', 'tackles', 'interceptions', 'blocks', 'passAtt']
+export const RADAR_PREFERENCES: Record<PositionGroup, string[]> = {
   ST: ['npg', 'npxg', 'shots', 'npxgPerShot', 'xag', 'sca', 'dribblesSucc', 'touchesBox', 'aerialsWon', 'tklInt'],
   W: ['npg', 'npxg', 'xag', 'keyPasses', 'sca', 'progPasses', 'progCarries', 'dribblesSucc', 'touchesBox', 'tklInt'],
   AM: ['npg', 'npxg', 'xag', 'keyPasses', 'sca', 'progPasses', 'progCarries', 'dribblesSucc', 'touchesBox', 'tklInt'],
@@ -200,7 +207,7 @@ export const RADAR_TEMPLATES = Object.fromEntries(
 ) as Record<PositionGroup, string[]>
 
 /** Stats used in the percentile ("scouting report") panel, grouped by category. */
-const SCOUT_OUTFIELD: { category: string; metrics: string[] }[] = [
+export const SCOUT_OUTFIELD: { category: string; metrics: string[] }[] = [
   { category: 'Shooting', metrics: ['npg', 'npxg', 'shots', 'sotPct', 'npxgPerShot'] },
   { category: 'Creation', metrics: ['assists', 'xag', 'keyPasses', 'sca', 'gca'] },
   { category: 'Passing', metrics: ['passCmp', 'passPct', 'progPasses', 'finalThirdPasses', 'crosses'] },
@@ -208,7 +215,7 @@ const SCOUT_OUTFIELD: { category: string; metrics: string[] }[] = [
   { category: 'Defending', metrics: ['tackles', 'interceptions', 'blocks', 'clearances', 'recoveries', 'aerialsWon', 'aerialPct', 'duelsWon', 'duelPct'] },
 ]
 
-const SCOUT_GK: { category: string; metrics: string[] }[] = [
+export const SCOUT_GK: { category: string; metrics: string[] }[] = [
   { category: 'Shot stopping', metrics: ['savePct', 'psxgDiff', 'goalsAgainst', 'saves', 'csPct'] },
   { category: 'Command & sweeping', metrics: ['crossStopPct', 'sweeperActions'] },
   { category: 'Distribution', metrics: ['passCmp', 'passPct', 'launchPct'] },
@@ -221,7 +228,7 @@ export const SCOUT_TEMPLATE_OUTFIELD = availableTemplate(SCOUT_OUTFIELD)
 export const SCOUT_TEMPLATE_GK = availableTemplate(SCOUT_GK)
 
 /** Stat-table column sets used by the Statistics database. */
-const ALL_TABLE_VIEWS: { id: string; label: string; metrics: string[]; gkOnly?: boolean }[] = [
+export const ALL_TABLE_VIEWS: { id: string; label: string; metrics: string[]; gkOnly?: boolean }[] = [
   { id: 'standard', label: 'Standard', metrics: ['apps', 'starts', 'mins', 'goals', 'assists', 'ga', 'npg', 'pkGoals', 'xg', 'npxg', 'xag', 'npxgXag', 'rating', 'yellows', 'reds'] },
   { id: 'shooting', label: 'Shooting', metrics: ['mins', 'goals', 'shots', 'sot', 'sotPct', 'goalsPerShot', 'npxg', 'npxgPerShot', 'gMinusXg'] },
   { id: 'passing', label: 'Passing', metrics: ['mins', 'passCmp', 'passAtt', 'passPct', 'progPasses', 'keyPasses', 'finalThirdPasses', 'crosses', 'xag', 'assists'] },

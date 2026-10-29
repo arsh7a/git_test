@@ -6,9 +6,10 @@
 //    and reduces them to per-player totals, saved one small file per match in
 //    data-cache/statsbomb/ (raw events, ~3 MB a match, are not kept). Re-running
 //    skips matches already done, so it is safe to stop and restart.
-// 2. Adds the matches up into a season Dataset at src/data/real/dataset.json.
+// 2. Adds the matches up into a season Dataset at data-cache/statsbomb/dataset.json,
+//    which `npm run data:build` combines with the other sources.
 //
-// Neither folder is committed: StatsBomb's user agreement does not allow the
+// Nothing here is committed: StatsBomb's user agreement does not allow the
 // data to be redistributed. Anything published from it must credit StatsBomb
 // with their logo.
 
@@ -18,13 +19,12 @@ import { fileURLToPath } from 'node:url'
 import { GROUP_OF } from '../src/data/sample/generate.ts'
 import { NATIONS } from '../src/data/sample/nations.ts'
 import { EMPTY_LINE, STAT_KEYS } from '../src/data/statline.ts'
-import type { WikidataMatches } from './wikidata.ts'
 import type { Club, Dataset, League, Nation, Player, PlayerSeason, Position, StatKey, StatLine } from '../src/data/types.ts'
 
 const RAW = 'https://raw.githubusercontent.com/statsbomb/open-data/master/data'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = join(ROOT, 'data-cache', 'statsbomb')
-const OUT = join(ROOT, 'src', 'data', 'real', 'dataset.json')
+const OUT = join(CACHE, 'dataset.json')
 
 const SEASON_ID = 27 // 2015/2016
 const SEASON = '2015-16'
@@ -405,9 +405,6 @@ function nation(name: string | null): Nation {
 }
 
 function build() {
-  // Birth dates, heights and club colours from Wikidata, when `npm run data:wikidata` has been run.
-  const wikiFile = join(CACHE, '..', 'wikidata', 'matches.json')
-  const wiki: WikidataMatches = existsSync(wikiFile) ? JSON.parse(readFileSync(wikiFile, 'utf8')) : { clubs: {}, players: {} }
   const summaries: MatchSummary[] = readdirSync(join(CACHE, 'matches')).map((f) => JSON.parse(readFileSync(join(CACHE, 'matches', f), 'utf8')))
   summaries.sort((a, b) => a.date.localeCompare(b.date))
   const report: string[] = []
@@ -470,8 +467,7 @@ function build() {
       lastName: display.split(' ').slice(-1)[0],
       fullName: clean(last.fullName),
       nationCode: nation(last.country).code,
-      heightCm: wiki.players[String(last.id)]?.heightCm ?? 0,
-      birthDate: wiki.players[String(last.id)]?.birthDate,
+      heightCm: 0,
       primaryPosition: primary,
       // Other positions with at least 270 minutes (three full matches).
       secondaryPositions: ranked.slice(1).filter(([, mins]) => mins >= 270).map(([pos]) => pos),
@@ -480,17 +476,6 @@ function build() {
       shirtNumber: last.jersey,
     }
   })
-
-  for (const club of clubs.values()) {
-    // Wikidata lists colours in no set order; lead with a real colour rather than white (Leicester: blue, not white).
-    const colors = [...(wiki.clubs[club.id]?.colors ?? [])].sort((a, b) => Number(a === '#ffffff') - Number(b === '#ffffff'))
-    if (colors.length) club.colors = [colors[0], colors[1] ?? (colors[0] === '#ffffff' ? '#1f2933' : '#ffffff')]
-  }
-  // Age during the season, taken on 1 January 2016.
-  for (const row of rows.values()) {
-    const dob = wiki.players[row.playerId]?.birthDate
-    if (dob) row.age = 2015 - Number(dob.slice(0, 4)) + (dob.slice(5) <= '01-01' ? 1 : 0)
-  }
 
   const usedNations = new Set([...players.map((p) => p.nationCode), ...leagues.map((l) => l.nationCode)])
   const dataset: Dataset = {
@@ -507,7 +492,6 @@ function build() {
   }
   mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, JSON.stringify(dataset))
-  if (existsSync(join(CACHE, 'logo.png'))) writeFileSync(join(dirname(OUT), 'source-logo.png'), readFileSync(join(CACHE, 'logo.png')))
   console.log(report.join('\n'))
   console.log(`Wrote ${players.length} players, ${dataset.playerSeasons.length} player-seasons to ${OUT}`)
 }

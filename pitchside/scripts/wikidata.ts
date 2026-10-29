@@ -1,24 +1,27 @@
-// Matches StatsBomb clubs and players to Wikidata, for details the match data
-// lacks: birth dates, heights, club colours, and the Wikimedia Commons file
-// names of club crests and player photos (freely licensed images only).
+// Matches every source's clubs and players to Wikidata, for details the match
+// data lacks: birth dates, heights, club colours, the Wikimedia Commons file
+// names of freely licensed crests and photos, and Wikidata ids, which
+// `npm run data:build` uses to recognise the same player or club across sources.
 //
-//   npm run data:wikidata      (after npm run data:statsbomb)
+//   npm run data:wikidata      (after data:statsbomb and/or data:pitchapi)
 //
-// Writes data-cache/wikidata/matches.json, which `npm run data:statsbomb`
-// then folds into the dataset, and `npm run data:images` uses to fetch images.
+// Writes data-cache/wikidata/matches.json.
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Dataset } from '../src/data/types.ts'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const OUT = join(ROOT, 'data-cache', 'wikidata', 'matches.json')
-const DATASET = join(ROOT, 'src', 'data', 'real', 'dataset.json')
+const CACHE = join(ROOT, 'data-cache', 'wikidata')
+const OUT = join(CACHE, 'matches.json')
+/** Each source's season dataset, and the period its squads are looked up for. */
+const SOURCES = [
+  { file: join(ROOT, 'data-cache', 'statsbomb', 'dataset.json'), from: '2015-07-01', to: '2016-06-30' },
+  { file: join(ROOT, 'data-cache', 'pitchapi', 'dataset.json'), from: '2021-07-01', to: '2027-06-30' },
+]
 export const USER_AGENT = 'Pitchside/0.1 (personal football statistics prototype)'
 
-/** Wikidata items for each StatsBomb competition's 2015/16 season. */
-const SEASON_ITEMS: Record<string, string> = { '2': 'Q19346732', '11': 'Q16621994', '12': 'Q19309054', '7': 'Q19820211' }
 
 export interface WikidataMatches {
   clubs: Record<string, { qid: string; label: string; logo?: string; colors?: string[] }>
@@ -60,112 +63,135 @@ function overlap(a: Set<string>, b: Set<string>) {
   return shared / Math.max(1, Math.min(a.size, b.size)) + (0.5 * shared) / Math.max(1, a.size, b.size)
 }
 
+/** The Wikidata item for a league's season, e.g. "2015–16 Premier League" (the one listing its clubs). */
+async function seasonItem(league: string, season: string, cache: Record<string, string>): Promise<string | undefined> {
+  const label = `${season.slice(0, 4)}–${season.slice(5, 7)} ${league}` // "2015-16" → "2015–16"
+  if (cache[label]) return cache[label]
+  const rows = await sparql(`
+    SELECT ?s (COUNT(?t) AS ?n) WHERE { ?s rdfs:label "${label}"@en . ?s wdt:P1923 ?t } GROUP BY ?s ORDER BY DESC(?n) LIMIT 1`)
+  if (rows[0]) cache[label] = qid(rows[0].s.value)
+  return cache[label]
+}
+
 async function main() {
-  const dataset: Dataset = JSON.parse(readFileSync(DATASET, 'utf8'))
   const matches: WikidataMatches = { clubs: {}, players: {} }
   const report: string[] = []
+  const seasonCacheFile = join(CACHE, 'seasons.json')
+  const seasonCache: Record<string, string> = existsSync(seasonCacheFile) ? JSON.parse(readFileSync(seasonCacheFile, 'utf8')) : {}
+  mkdirSync(CACHE, { recursive: true })
 
-  for (const league of dataset.leagues) {
-    const season = SEASON_ITEMS[league.id]
-    if (!season) continue
-
-    // Clubs: crest (P154) and official colours (P6364 → hex P465).
-    const teams = await sparql(`
-      SELECT ?team ?teamLabel (SAMPLE(?logo) AS ?logo) (GROUP_CONCAT(DISTINCT ?hex; separator="|") AS ?hexes) WHERE {
-        wd:${season} wdt:P1923 ?team .
-        OPTIONAL { ?team wdt:P154 ?logo }
-        OPTIONAL { ?team wdt:P6364 ?color . ?color wdt:P465 ?hex }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-      } GROUP BY ?team ?teamLabel`)
-    const clubs = dataset.clubs.filter((c) => c.leagueId === league.id)
-    // Best pairs first across the whole league, so one club cannot take another's match
-    // (e.g. Real Madrid and Atlético Madrid both containing "Madrid").
-    const pairs = clubs
-      .flatMap((club) => teams.map((t) => ({ club, t, score: overlap(clubTokens(CLUB_ALIASES[club.name] ?? club.name), clubTokens(t.teamLabel.value)) })))
-      .filter((x) => x.score >= 0.5)
-      .sort((a, b) => b.score - a.score)
-    const taken = new Set<string>()
+  for (const source of SOURCES) {
+    if (!existsSync(source.file)) continue
+    const dataset: Dataset = JSON.parse(readFileSync(source.file, 'utf8'))
+    const playerById = new Map(dataset.players.map((p) => [p.id, p]))
     const clubQid = new Map<string, string>()
-    for (const { club, t } of pairs) {
-      if (clubQid.has(club.id) || taken.has(t.team.value)) continue
-      const best = { t }
-      taken.add(best.t.team.value)
-      clubQid.set(club.id, qid(best.t.team.value))
-      matches.clubs[club.id] = {
-        qid: qid(best.t.team.value),
-        label: best.t.teamLabel.value,
-        logo: fileName(best.t.logo?.value),
-        colors: best.t.hexes?.value ? best.t.hexes.value.split('|').map((h: string) => `#${h.toLowerCase()}`) : undefined,
-      }
-    }
-    for (const club of clubs) if (!clubQid.has(club.id)) report.push(`  no Wikidata club for ${club.name}`)
+    const squads = new Map<string, Json[]>()
 
-    // Players: everyone Wikidata lists at each club around 2015/16, with any names they go by.
-    // One query per club keeps each well inside the query service's time limit.
-    const byTeam = new Map<string, Json[]>()
-    console.log(`${league.name}: looking up ${clubQid.size} squads`)
-    for (const team of new Set(clubQid.values())) {
-      byTeam.set(
-        team,
-        await sparql(`
-          SELECT ?p ?pLabel (SAMPLE(?img) AS ?img) (SAMPLE(?dob) AS ?dob) (SAMPLE(?h) AS ?h)
-                 (GROUP_CONCAT(DISTINCT ?alt; separator="|") AS ?alts) WHERE {
-            ?p p:P54 ?st . ?st ps:P54 wd:${team} .
-            OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end }
-            FILTER(!BOUND(?start) || ?start <= "2016-06-30T00:00:00Z"^^xsd:dateTime)
-            FILTER(!BOUND(?end) || ?end >= "2015-07-01T00:00:00Z"^^xsd:dateTime)
-            OPTIONAL { ?p wdt:P18 ?img }
-            OPTIONAL { ?p wdt:P569 ?dob }
-            OPTIONAL { ?p p:P2048/psn:P2048/wikibase:quantityAmount ?h }
-            OPTIONAL { { ?p skos:altLabel ?alt FILTER(LANG(?alt) = "en") } UNION { ?p wdt:P1477 ?alt } }
+    for (const league of dataset.leagues) {
+      for (const season of dataset.seasons) {
+        const rows = dataset.playerSeasons.filter((r) => r.leagueId === league.id && r.season === season)
+        if (!rows.length) continue
+        const item = await seasonItem(league.name, season, seasonCache)
+        if (!item) {
+          report.push(`  ${league.name} ${season}: no Wikidata season item`)
+          continue
+        }
+
+        // Clubs: crest (P154) and official colours (P6364 → hex P465).
+        const teams = await sparql(`
+          SELECT ?team ?teamLabel (SAMPLE(?logo) AS ?logo) (GROUP_CONCAT(DISTINCT ?hex; separator="|") AS ?hexes) WHERE {
+            wd:${item} wdt:P1923 ?team .
+            OPTIONAL { ?team wdt:P154 ?logo }
+            OPTIONAL { ?team wdt:P6364 ?color . ?color wdt:P465 ?hex }
             SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
-          } GROUP BY ?p ?pLabel`),
-      )
-    }
+          } GROUP BY ?team ?teamLabel`)
+        const clubIds = [...new Set(rows.map((r) => r.clubId))].filter((id) => !clubQid.has(id))
+        const clubs = dataset.clubs.filter((c) => clubIds.includes(c.id))
+        // Best pairs first across the whole league, so one club cannot take another's match
+        // (e.g. Real Madrid and Atlético Madrid both containing "Madrid").
+        const pairs = clubs
+          .flatMap((club) => teams.map((t) => ({ club, t, score: overlap(clubTokens(CLUB_ALIASES[club.name] ?? club.name), clubTokens(t.teamLabel.value)) })))
+          .filter((x) => x.score >= 0.5)
+          .sort((a, b) => b.score - a.score)
+        const taken = new Set([...clubQid.values()])
+        for (const { club, t } of pairs) {
+          if (clubQid.has(club.id) || taken.has(qid(t.team.value))) continue
+          taken.add(qid(t.team.value))
+          clubQid.set(club.id, qid(t.team.value))
+          matches.clubs[club.id] = {
+            qid: qid(t.team.value),
+            label: t.teamLabel.value,
+            logo: fileName(t.logo?.value),
+            colors: t.hexes?.value ? t.hexes.value.split('|').map((h: string) => `#${h.toLowerCase()}`) : undefined,
+          }
+        }
+        for (const club of clubs) if (!clubQid.has(club.id)) report.push(`  no Wikidata club for ${club.name} (${league.name} ${season})`)
 
-    const inLeague = dataset.playerSeasons.filter((r) => r.leagueId === league.id)
-    let found = 0
-    for (const row of inLeague) {
-      const player = dataset.players.find((p) => p.id === row.playerId)!
-      if (matches.players[player.id]) {
-        found++
-        continue
+        // Players: everyone Wikidata lists at each club during this source's period, with any names they go by.
+        // One query per club keeps each well inside the query service's time limit.
+        for (const team of new Set(rows.map((r) => clubQid.get(r.clubId)).filter((q): q is string => !!q))) {
+          if (squads.has(team)) continue
+          squads.set(
+            team,
+            await sparql(`
+              SELECT ?p ?pLabel (SAMPLE(?img) AS ?img) (SAMPLE(?dob) AS ?dob) (SAMPLE(?h) AS ?h)
+                     (GROUP_CONCAT(DISTINCT ?alt; separator="|") AS ?alts) WHERE {
+                ?p p:P54 ?st . ?st ps:P54 wd:${team} .
+                OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end }
+                FILTER(!BOUND(?start) || ?start <= "${source.to}T00:00:00Z"^^xsd:dateTime)
+                FILTER(!BOUND(?end) || ?end >= "${source.from}T00:00:00Z"^^xsd:dateTime)
+                OPTIONAL { ?p wdt:P18 ?img }
+                OPTIONAL { ?p wdt:P569 ?dob }
+                OPTIONAL { ?p p:P2048/psn:P2048/wikibase:quantityAmount ?h }
+                OPTIONAL { { ?p skos:altLabel ?alt FILTER(LANG(?alt) = "en") } UNION { ?p wdt:P1477 ?alt } }
+                SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+              } GROUP BY ?p ?pLabel`),
+          )
+        }
+
+        let found = 0
+        for (const row of rows) {
+          const player = playerById.get(row.playerId)!
+          if (matches.players[player.id]) {
+            found++
+            continue
+          }
+          const candidates = squads.get(clubQid.get(row.clubId) ?? '') ?? []
+          const mine = [player.name, player.fullName ?? `${player.firstName} ${player.lastName}`].map(normalize)
+          const myTokens = new Set(mine.join(' ').split(' '))
+          const scored = candidates
+            .map((c) => {
+              const names = [c.pLabel.value, ...(c.alts?.value ? c.alts.value.split('|') : [])].map(normalize)
+              let score = 0
+              if (names.some((n) => mine.includes(n))) score = 3
+              // Every word of one of their (multi-word) names appears in ours, e.g. "Gareth Bale" in "Gareth Frank Bale".
+              // One-word names ("Álvaro") must match exactly, or they would fit half the squad.
+              else if (names.some((n) => n.includes(' ') && n.split(' ').every((w) => myTokens.has(w)))) score = 2
+              // Same surname and a similar first name ("Brad Smith" / "Bradley Smith").
+              else if (names.some((n) => n.includes(' ') && n.split(' ').slice(-1)[0] === normalize(player.lastName) && n.slice(0, 3) === mine[0].slice(0, 3))) score = 1
+              return { c, score }
+            })
+            .filter((x) => x.score > 0)
+            .sort((a, b) => b.score - a.score)
+          // Skip ties: better no picture than the wrong person's.
+          if (!scored.length || (scored[1] && scored[1].score === scored[0].score && scored[1].c.p.value !== scored[0].c.p.value)) continue
+          const c = scored[0].c
+          const height = c.h ? Number(c.h.value) : NaN
+          matches.players[player.id] = {
+            qid: qid(c.p.value),
+            label: c.pLabel.value,
+            photo: fileName(c.img?.value),
+            birthDate: c.dob?.value.slice(0, 10),
+            heightCm: height > 1.4 && height < 2.2 ? Math.round(height * 100) : undefined,
+          }
+          found++
+        }
+        console.log(`${league.name} ${season}: ${found}/${rows.length} players matched`)
       }
-      const candidates = byTeam.get(clubQid.get(row.clubId) ?? '') ?? []
-      const mine = [player.name, `${player.firstName} ${player.lastName}`].map(normalize)
-      const myTokens = new Set(mine.join(' ').split(' '))
-      const scored = candidates
-        .map((c) => {
-          const names = [c.pLabel.value, ...(c.alts?.value ? c.alts.value.split('|') : [])].map(normalize)
-          let score = 0
-          if (names.some((n) => mine.includes(n))) score = 3
-          // Every word of one of their (multi-word) names appears in ours, e.g. "Gareth Bale" in "Gareth Frank Bale".
-          // One-word names ("Álvaro") must match exactly, or they would fit half the squad.
-          else if (names.some((n) => n.includes(' ') && n.split(' ').every((w) => myTokens.has(w)))) score = 2
-          // Same surname and a similar first name ("Brad Smith" / "Bradley Smith").
-          else if (names.some((n) => n.includes(' ') && n.split(' ').slice(-1)[0] === normalize(player.lastName) && n.slice(0, 3) === mine[0].slice(0, 3))) score = 1
-          return { c, score }
-        })
-        .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score)
-      // Skip ties: better no picture than the wrong person's.
-      if (!scored.length || (scored[1] && scored[1].score === scored[0].score && scored[1].c.p.value !== scored[0].c.p.value)) continue
-      const c = scored[0].c
-      const height = c.h ? Number(c.h.value) : NaN
-      matches.players[player.id] = {
-        qid: qid(c.p.value),
-        label: c.pLabel.value,
-        photo: fileName(c.img?.value),
-        birthDate: c.dob?.value.slice(0, 10),
-        heightCm: height > 1.4 && height < 2.2 ? Math.round(height * 100) : undefined,
-      }
-      found++
     }
-    const withPhoto = inLeague.filter((r) => matches.players[r.playerId]?.photo).length
-    report.unshift(`${league.name}: ${clubQid.size}/${clubs.length} clubs, ${found}/${inLeague.length} players matched, ${withPhoto} with a photo, ${clubs.filter((c) => matches.clubs[c.id]?.logo).length} free crests`)
+    writeFileSync(seasonCacheFile, JSON.stringify(seasonCache, null, 1))
   }
 
-  mkdirSync(dirname(OUT), { recursive: true })
   writeFileSync(OUT, JSON.stringify(matches, null, 1))
   console.log(report.join('\n'))
 }

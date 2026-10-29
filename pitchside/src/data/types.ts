@@ -144,6 +144,8 @@ export interface Dataset {
   /** True while the site runs on generated sample data. */
   isSample: boolean
   sourceName: string
+  /** Which source each season comes from, when several are combined. */
+  seasonSources?: Record<string, string>
   /** Stats this source actually measures. Metrics needing anything else are hidden. Omitted = all. */
   availableStats?: StatKey[]
   /** Renames position groups when a source only knows broad positions (e.g. CB → "Defenders"). */
@@ -155,4 +157,14 @@ export interface Dataset {
   clubs: Club[]
   players: Player[]
   playerSeasons: PlayerSeason[]
+}
+
+/**
+ * The on-disk form of a combined dataset: season rows are arrays in `statKeys`
+ * order (null = not measured by that season's source), which keeps the file small.
+ * `src/data/source.ts` turns it back into a `Dataset`.
+ */
+export interface PackedDataset extends Dataset {
+  statKeys: StatKey[]
+  packedRows: (string | number | null)[][]
 }

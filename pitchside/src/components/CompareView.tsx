@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ageOn, getClub, getNation, getPlayerSeason, getPlayerSeasons, percentile } from '../data'
-import { GROUP_LABEL, METRIC, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, hasMetric, metricValue } from '../data/metrics'
+import { ageOn, getClub, getNation, getPlayerSeason, getPlayerSeasons, measuredInSeason, percentile, radarMetrics, scoutTemplate } from '../data'
+import { GROUP_LABEL, METRIC, hasMetric, metricValue } from '../data/metrics'
 import type { Player, PlayerSeason } from '../data/types'
 import { formatMetric } from '../lib/format'
 import { RadarChart } from './Charts'
@@ -106,8 +106,13 @@ function CompareBody({ a, b, rowA, rowB, mode, setMode }: { a: Player; b: Player
   const bothGK = a.group === 'GK' && b.group === 'GK'
   const mixedGK = (a.group === 'GK') !== (b.group === 'GK')
   const per90 = mode === 'per90'
-  const template = bothGK ? SCOUT_TEMPLATE_GK : SCOUT_TEMPLATE_OUTFIELD
-  const radarIds = RADAR_TEMPLATES[a.group === 'GK' && !bothGK ? b.group : a.group]
+  // Only stats both seasons measure (they may come from different sources).
+  const both = (id: string) => measuredInSeason(id, rowA.season) && measuredInSeason(id, rowB.season)
+  const radarGroup = a.group === 'GK' && !bothGK ? b.group : a.group
+  const template = scoutTemplate(bothGK ? 'GK' : 'CM', rowA.season)
+    .map((c) => ({ ...c, metrics: c.metrics.filter(both) }))
+    .filter((c) => c.metrics.length > 0)
+  const radarIds = [...new Set([...radarMetrics(radarGroup, rowA.season), ...radarMetrics(radarGroup, rowB.season)])].filter(both).slice(0, radarGroup === 'GK' ? 8 : 10)
 
   const pctA = (id: string) => percentile(id, rowA.stats, rowA.season, a.group)
   const pctB = (id: string) => percentile(id, rowB.stats, rowB.season, b.group)
@@ -117,7 +122,7 @@ function CompareBody({ a, b, rowA, rowB, mode, setMode }: { a: Player; b: Player
       ? ['apps', 'mins', 'goalsAgainst', 'savePct', 'cleanSheets', 'psxgDiff', 'saves', 'rating']
       : ['apps', 'mins', 'goals', 'assists', 'npxg', 'xag', 'sca', 'tklInt', 'shots', 'keyPasses', 'rating']
   )
-    .filter(hasMetric)
+    .filter((id) => hasMetric(id) && both(id))
     .slice(0, bothGK ? 6 : 8)
 
   const allIds = template.flatMap((c) => c.metrics)

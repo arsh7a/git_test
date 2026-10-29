@@ -3,8 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, type Column } from '../components/DataTable'
 import { ClubBadge, Flag } from '../components/Identity'
 import { Panel, Segmented } from '../components/UI'
-import { dataset, getSeasonRows, hasAges, type SeasonRow } from '../data'
-import { GROUP_LABEL, METRIC, TABLE_VIEWS, metricValue } from '../data/metrics'
+import { dataset, getSeasonRows, hasAges, tableViews, type SeasonRow } from '../data'
+import { GROUP_LABEL, METRIC, metricValue } from '../data/metrics'
 import type { PositionGroup } from '../data/types'
 import { formatMetric } from '../lib/format'
 
@@ -44,8 +44,9 @@ export function Stats() {
     setParams(next, { replace: true })
   }
 
-  const view = TABLE_VIEWS.find((v) => v.id === get('view')) ?? TABLE_VIEWS[0]
   const season = dataset.seasons.includes(get('season')) ? get('season') : dataset.currentSeason
+  const views = tableViews(season)
+  const view = views.find((v) => v.id === get('view')) ?? views[0]
   const per90 = get('per90') === '1'
   const q = get('q')
   const league = get('league')
@@ -213,7 +214,7 @@ export function Stats() {
 
       <div className="table-toolbar">
         <div className="view-tabs" role="tablist" aria-label="Statistic group">
-          {TABLE_VIEWS.map((v) => (
+          {views.map((v) => (
             <button key={v.id} type="button" role="tab" aria-selected={v.id === view.id} className={v.id === view.id ? 'vtab on' : 'vtab'} onClick={() => set({ view: v.id, sort: '', metric: '', metricMin: '' })}>
               {v.label}
             </button>

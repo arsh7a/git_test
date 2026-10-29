@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "data:statsbomb": "tsx scripts/statsbomb.ts",
     "data:wikidata": "tsx scripts/wikidata.ts",
-    "data:images": "tsx scripts/images.ts"
+    "data:images": "tsx scripts/images.ts",
+    "data:pitchapi": "tsx scripts/pitchapi.ts",
+    "data:build": "tsx scripts/build.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

@@ -4,7 +4,7 @@ import { ClubBadge, Flag } from '../components/Identity'
 import { Panel, SampleBadge, SeasonSelect } from '../components/UI'
 import { MIN_MINUTES, hasAges, clubSummaries, clubsInLeague, dataset, getLeague, getSeasonRows, leaders, type ClubSeasonSummary } from '../data'
 import { METRIC, firstAvailable, hasMetric } from '../data/metrics'
-import { formatMetric } from '../lib/format'
+import { fixed, formatMetric } from '../lib/format'
 import { NotFound } from './NotFound'
 
 export function Leagues() {
@@ -79,9 +79,9 @@ export function LeagueDetail() {
     { key: 'used', label: 'Players', title: 'Players used', align: 'right', sortValue: (r) => r.playersUsed, render: (r) => r.playersUsed },
     ...(hasAges ? [{ key: 'age', label: 'Avg age', title: 'Average age, weighted by minutes played', align: 'right', sortValue: (r) => r.avgAge, render: (r) => r.avgAge.toFixed(1) } as Column<ClubSeasonSummary>] : []),
     { key: 'goals', label: 'GF', title: 'Goals scored', align: 'right', sortValue: (r) => r.goals, render: (r) => r.goals },
-    ...(hasMetric('xg') ? [{ key: 'xg', label: 'xG', title: 'Expected goals', align: 'right', sortValue: (r) => r.xg, render: (r) => r.xg.toFixed(1) } as Column<ClubSeasonSummary>] : []),
+    ...(hasMetric('xg') ? [{ key: 'xg', label: 'xG', title: 'Expected goals', align: 'right', sortValue: (r) => r.xg, render: (r) => fixed(r.xg) } as Column<ClubSeasonSummary>] : []),
     { key: 'ga', label: 'GA', title: 'Goals conceded', align: 'right', sortValue: (r) => r.goalsAgainst, render: (r) => r.goalsAgainst },
-    ...(hasMetric('psxg') ? [{ key: 'psxg', label: 'PSxG faced', title: 'Post-shot expected goals faced by the goalkeepers', align: 'right', sortValue: (r) => r.xga, render: (r) => r.xga.toFixed(1) } as Column<ClubSeasonSummary>] : []),
+    ...(hasMetric('psxg') ? [{ key: 'psxg', label: 'PSxG faced', title: 'Post-shot expected goals faced by the goalkeepers', align: 'right', sortValue: (r) => r.xga, render: (r) => fixed(r.xga) } as Column<ClubSeasonSummary>] : []),
     { key: 'gd', label: 'GD', title: 'Goal difference', align: 'right', sortValue: (r) => r.goals - r.goalsAgainst, render: (r) => <span className="num">{r.goals - r.goalsAgainst > 0 ? '+' : ''}{r.goals - r.goalsAgainst}</span> },
   ]
 

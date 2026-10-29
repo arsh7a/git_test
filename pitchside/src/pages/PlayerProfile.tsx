@@ -19,13 +19,15 @@ import {
   percentile,
   percentileItems,
   poolSize,
+  measuredInSeason,
+  radarMetrics,
   scoutTemplate,
   similarPlayers,
   strengthsAndWeaknesses,
 } from '../data'
-import { GROUP_LABEL, METRIC, METRICS, RADAR_TEMPLATES, hasMetric, metricValue, type MetricCategory } from '../data/metrics'
+import { GROUP_LABEL, METRIC, METRICS, hasMetric, metricValue, type MetricCategory } from '../data/metrics'
 import type { Player, PlayerSeason } from '../data/types'
-import { formatDate, formatMetric, ordinal } from '../lib/format'
+import { fixed, formatDate, formatMetric, ordinal } from '../lib/format'
 import { NotFound } from './NotFound'
 
 const TABS = [
@@ -146,12 +148,12 @@ function SeasonSummary({ player, row }: { player: Player; row: PlayerSeason }) {
             {hasMetric('cleanSheets') ? (
               <StatTile label="Clean sheets" value={s.cleanSheets} sub={s.starts ? `${Math.round((s.cleanSheets / s.starts) * 100)}% of starts` : '—'} />
             ) : (
-              hasMetric('rating') && <RatingTile s={s} />
+              hasMetric('rating') && Number.isFinite(s.ratingMins) && <RatingTile s={s} />
             )}
             <StatTile label="Conceded" value={s.goalsAgainst} sub={`${p90(s.goalsAgainst)} per 90`} />
             <StatTile label="Save %" value={formatMetric(METRIC.savePct, metricValue(METRIC.savePct, s, false))} sub={`${s.saves} saves`} />
-            {hasMetric('psxgDiff') ? (
-              <StatTile label="Goals prevented" value={(s.psxg - s.goalsAgainst > 0 ? '+' : '') + (s.psxg - s.goalsAgainst).toFixed(1)} sub="PSxG − GA" />
+            {hasMetric('psxgDiff') && Number.isFinite(s.psxg) ? (
+              <StatTile label="Goals prevented" value={fixed(s.psxg - s.goalsAgainst, 1, true)} sub="PSxG − GA" />
             ) : (
               <StatTile label="Saves" value={s.saves} sub={`${p90(s.saves)} per 90`} />
             )}
@@ -168,7 +170,7 @@ function SeasonSummary({ player, row }: { player: Player; row: PlayerSeason }) {
             ) : (
               <>
                 <StatTile label="Shots" value={s.shots} sub={`${s.sot} on target`} />
-                {hasMetric('rating') ? <RatingTile s={s} /> : <StatTile label="Key passes" value={s.keyPasses} sub={`${p90(s.keyPasses)} per 90`} />}
+                {hasMetric('rating') && Number.isFinite(s.ratingMins) ? <RatingTile s={s} /> : <StatTile label="Key passes" value={s.keyPasses} sub={`${p90(s.keyPasses)} per 90`} />}
               </>
             )}
           </>
@@ -215,7 +217,7 @@ function Overview({ player, row }: { player: Player; row: PlayerSeason }) {
   const peers = GROUP_LABEL[player.group]
   const n = poolSize(season, player.group)
   const { strengths, weaknesses } = strengthsAndWeaknesses(stats, season, player.group)
-  const radarIds = RADAR_TEMPLATES[player.group]
+  const radarIds = radarMetrics(player.group, season)
   const radarItems = percentileItems(radarIds, stats, season, player.group)
   const similar = similarPlayers(player.id, season)
   const history = getPlayerSeasons(player.id)
@@ -275,7 +277,7 @@ function Overview({ player, row }: { player: Player; row: PlayerSeason }) {
             <span className="pbar-scale"><span>0</span><span>50</span><span>100</span></span>
             <span className="al-right">Pct</span>
           </div>
-          {scoutTemplate(player.group).map((cat) => (
+          {scoutTemplate(player.group, season).map((cat) => (
             <div key={cat.category} className="pbar-group">
               <h3 className="pbar-cat">{cat.category}</h3>
               {percentileItems(cat.metrics, stats, season, player.group).map((it) => (
@@ -349,7 +351,7 @@ function StatisticsTab({ player, row }: { player: Player; row: PlayerSeason }) {
       </p>
       <div className="stat-grid">
         {cats.map((cat) => {
-          const metrics = METRICS.filter((m) => m.category === cat && (m.scope === 'all' || m.scope === (isGK ? 'gk' : 'outfield')))
+          const metrics = METRICS.filter((m) => m.category === cat && (m.scope === 'all' || m.scope === (isGK ? 'gk' : 'outfield')) && measuredInSeason(m.id, season))
           return (
             <Panel key={cat} title={cat} flush>
               <table className="tbl tbl-dense stat-table">
@@ -472,7 +474,7 @@ function CareerTab({ player }: { player: Player }) {
           { key: 'saves', label: 'Saves', align: 'right', render: (r) => r.stats.saves, sortValue: (r) => r.stats.saves },
           { key: 'savePct', label: 'Save%', align: 'right', render: (r) => formatMetric(METRIC.savePct, metricValue(METRIC.savePct, r.stats, false)), sortValue: (r) => metricValue(METRIC.savePct, r.stats, false) },
           ...(hasCS ? [{ key: 'cs', label: 'CS', title: 'Clean sheets', align: 'right', render: (r) => r.stats.cleanSheets, sortValue: (r) => r.stats.cleanSheets }] as Column<PlayerSeason>[] : []),
-          ...(hasPsxg ? [{ key: 'psxgd', label: 'PSxG±', title: 'Goals prevented', align: 'right', render: (r) => (r.stats.psxg - r.stats.goalsAgainst).toFixed(1), sortValue: (r) => r.stats.psxg - r.stats.goalsAgainst }] as Column<PlayerSeason>[] : []),
+          ...(hasPsxg ? [{ key: 'psxgd', label: 'PSxG±', title: 'Goals prevented', align: 'right', render: (r) => fixed(r.stats.psxg - r.stats.goalsAgainst), sortValue: (r) => r.stats.psxg - r.stats.goalsAgainst }] as Column<PlayerSeason>[] : []),
         ] as Column<PlayerSeason>[])
       : ([
           { key: 'goals', label: 'Gls', title: 'Goals', align: 'right', render: (r) => r.stats.goals, sortValue: (r) => r.stats.goals },
@@ -504,7 +506,7 @@ function CareerTab({ player }: { player: Player }) {
           <td className="al-right num">{total.saves}</td>
           <td className="al-right num">{total.sotAgainst ? `${((total.saves / total.sotAgainst) * 100).toFixed(1)}%` : '—'}</td>
           {hasCS && <td className="al-right num">{total.cleanSheets}</td>}
-          {hasPsxg && <td className="al-right num">{(total.psxg - total.goalsAgainst).toFixed(1)}</td>}
+          {hasPsxg && <td className="al-right num">{fixed(total.psxg - total.goalsAgainst)}</td>}
         </>
       ) : (
         <>

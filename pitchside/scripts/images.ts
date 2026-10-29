@@ -1,86 +1,123 @@
-// Downloads the club crests and player photos found by `npm run data:wikidata`
-// from Wikimedia Commons, shrinks them, and packs them into
-// src/data/real/images.json (loaded by the site after the page appears).
+// Downloads club crests and player photos listed by `npm run data:build`,
+// shrinks them and packs them into src/data/real/images-*.json, which the
+// site loads after the page appears.
 //
 //   npm run data:images
 //
-// Only freely licensed Commons files are used. Each image links back to its
-// Commons page, which names the author and licence. Downloads are cached in
-// data-cache/images/, so re-running only fetches what is missing.
+// For each club or player it tries PitchAPI's image first, then the freely
+// licensed Wikimedia Commons file found by `npm run data:wikidata` (those
+// link to their Commons page for the author and licence). Downloads are
+// cached in data-cache/images/, so re-running only fetches what is missing.
 
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
-import { USER_AGENT, type WikidataMatches } from './wikidata.ts'
+import { USER_AGENT } from './wikidata.ts'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CACHE = join(ROOT, 'data-cache', 'images')
-const MATCHES = join(ROOT, 'data-cache', 'wikidata', 'matches.json')
-const OUT = join(ROOT, 'src', 'data', 'real', 'images.json')
+const LIST = join(ROOT, 'data-cache', 'build', 'images.json')
+const OUT_DIR = join(ROOT, 'src', 'data', 'real')
 const THUMB_WIDTH = 250 // one of Wikimedia's standard thumbnail sizes
-const GAP_MS = 1000 // one request a second, to stay polite
-
-class RateLimited extends Error {}
+const WORKERS = 6
+const CHUNK_BYTES = 6_000_000 // keeps each packed file well under the 16 MB page-file limit
 
 /** Commons thumbnail URL; the folder comes from the md5 of the file name. */
-function thumbUrl(file: string) {
+function commonsUrl(file: string) {
   const md5 = createHash('md5').update(file).digest('hex')
   const suffix = /\.svg$/i.test(file) ? '.png' : ''
   const name = encodeURIComponent(file)
   return `https://upload.wikimedia.org/wikipedia/commons/thumb/${md5[0]}/${md5.slice(0, 2)}/${name}/${THUMB_WIDTH}px-${name}${suffix}`
 }
 
-async function download(file: string): Promise<Buffer | null> {
-  const path = join(CACHE, createHash('md5').update(file).digest('hex'))
+async function download(source: string): Promise<Buffer | null> {
+  const url = source.startsWith('commons:') ? commonsUrl(source.slice(8)) : source
+  const path = join(CACHE, createHash('md5').update(url).digest('hex'))
   if (existsSync(path)) return readFileSync(path)
+  // Earlier versions cached Commons files under the md5 of the file name.
+  const legacy = source.startsWith('commons:') ? join(CACHE, createHash('md5').update(source.slice(8)).digest('hex')) : ''
+  if (legacy && existsSync(legacy)) return readFileSync(legacy)
+  if (existsSync(path + '.missing')) return null
   for (let attempt = 1; attempt <= 5; attempt++) {
-    await new Promise((r) => setTimeout(r, GAP_MS * attempt ** 2))
-    const res = await fetch(thumbUrl(file), { headers: { 'User-Agent': USER_AGENT } })
+    // Commons asks for a gentle pace; PitchAPI's CDN is fine with the workers' pace.
+    if (source.startsWith('commons:')) await new Promise((r) => setTimeout(r, 1000 * attempt ** 2))
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
     if (res.ok) {
       const buf = Buffer.from(await res.arrayBuffer())
       writeFileSync(path, buf)
       return buf
     }
-    if (res.status === 404) return null // e.g. image smaller than the thumbnail size
-    if (res.status !== 429 && res.status < 500) return null
+    if (res.status === 404 || (res.status < 500 && res.status !== 429)) {
+      writeFileSync(path + '.missing', '')
+      return null
+    }
+    if (attempt === 5) return null
+    await new Promise((r) => setTimeout(r, 2000 * attempt))
   }
-  throw new RateLimited()
+  return null
 }
 
 async function main() {
-  const matches: WikidataMatches = JSON.parse(readFileSync(MATCHES, 'utf8'))
+  const list: { clubs: Record<string, string[]>; players: Record<string, string[]> } = JSON.parse(readFileSync(LIST, 'utf8'))
   mkdirSync(CACHE, { recursive: true })
-  const out = { clubs: {} as Record<string, string>, players: {} as Record<string, string>, files: {} as Record<string, string> }
-  const jobs = [
-    ...Object.entries(matches.clubs).filter(([, c]) => c.logo).map(([id, c]) => ({ kind: 'clubs' as const, id, file: c.logo! })),
-    ...Object.entries(matches.players).filter(([, p]) => p.photo).map(([id, p]) => ({ kind: 'players' as const, id, file: p.photo! })),
-  ]
-  let missing = 0
-  try {
-    for (const [i, job] of jobs.entries()) {
-      const buf = await download(job.file)
-      if (!buf) {
-        missing++
-        continue
+  const jobs = (['clubs', 'players'] as const).flatMap((kind) => Object.entries(list[kind]).map(([id, sources]) => ({ kind, id, sources })))
+  const picked = new Map<string, { kind: 'clubs' | 'players'; id: string; source: string; buf: Buffer }>()
+  const hashes = new Map<string, number>()
+  let done = 0
+
+  const worker = async () => {
+    for (let job = jobs.shift(); job; job = jobs.shift()) {
+      for (const source of job.sources) {
+        const buf = await download(source)
+        if (!buf) continue
+        const hash = createHash('md5').update(buf).digest('hex')
+        hashes.set(hash, (hashes.get(hash) ?? 0) + 1)
+        picked.set(`${job.kind}:${job.id}`, { ...job, source, buf })
+        break
       }
+      if (++done % 500 === 0) console.log(`  ${done} checked`)
+    }
+  }
+  await Promise.all(Array.from({ length: WORKERS }, worker))
+
+  // A picture shared by many players is the provider's "no photo" placeholder: leave those to the drawn silhouette.
+  const placeholder = (buf: Buffer) => (hashes.get(createHash('md5').update(buf).digest('hex')) ?? 0) > 5
+
+  for (const f of readdirSync(OUT_DIR)) if (/^images(-\d+)?\.json$/.test(f)) unlinkSync(join(OUT_DIR, f))
+  let chunk = { clubs: {} as Record<string, string>, players: {} as Record<string, string>, files: {} as Record<string, string> }
+  let size = 0
+  let n = 0
+  const flush = () => {
+    if (size) writeFileSync(join(OUT_DIR, `images-${n++}.json`), JSON.stringify(chunk))
+    chunk = { clubs: {}, players: {}, files: {} }
+    size = 0
+  }
+  const counts = { clubs: 0, players: 0, commons: 0 }
+  for (const { kind, id, source, buf } of picked.values()) {
+    if (placeholder(buf)) continue
+    try {
       // Crests keep their shape on a transparent square; photos are cropped to the face area (top of the frame).
       const img =
-        job.kind === 'clubs'
+        kind === 'clubs'
           ? sharp(buf).resize(64, 64, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } }).webp({ quality: 80 })
           : sharp(buf).resize(96, 96, { fit: 'cover', position: 'north' }).webp({ quality: 70 })
-      out[job.kind][job.id] = `data:image/webp;base64,${(await img.toBuffer()).toString('base64')}`
-      out.files[`${job.kind}:${job.id}`] = job.file
-      if ((i + 1) % 100 === 0) console.log(`  ${i + 1} of ${jobs.length}`)
+      const uri = `data:image/webp;base64,${(await img.toBuffer()).toString('base64')}`
+      chunk[kind][id] = uri
+      if (source.startsWith('commons:')) {
+        chunk.files[`${kind}:${id}`] = source.slice(8)
+        counts.commons++
+      }
+      counts[kind]++
+      size += uri.length
+      if (size > CHUNK_BYTES) flush()
+    } catch {
+      // An image sharp cannot read is skipped.
     }
-  } catch (e) {
-    if (!(e instanceof RateLimited)) throw e
-    console.log('Wikimedia is refusing requests from this connection (HTTP 429). Saved what was downloaded; run again later to continue.')
   }
-  mkdirSync(dirname(OUT), { recursive: true })
-  writeFileSync(OUT, JSON.stringify(out))
-  console.log(`Packed ${Object.keys(out.clubs).length} crests and ${Object.keys(out.players).length} photos (${missing} unavailable) into ${OUT}`)
+  flush()
+  console.log(`Packed ${counts.clubs} crests and ${counts.players} photos (${counts.commons} from Wikimedia Commons) into ${n} files`)
 }
 
 main().catch((e) => {

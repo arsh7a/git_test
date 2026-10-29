@@ -1,4 +1,4 @@
-import { METRIC, METRICS, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, metricValue } from './metrics'
+import { ALL_TABLE_VIEWS, METRIC, METRICS, OUTFIELD_SPARES, RADAR_PREFERENCES, SCOUT_GK, SCOUT_OUTFIELD, isMeasured, metricValue } from './metrics'
 import { dataset } from './source'
 import type { Club, League, Nation, Player, PlayerSeason, PositionGroup, StatLine } from './types'
 
@@ -181,13 +181,46 @@ export function percentileItems(metricIds: string[], stats: StatLine, season: st
   }))
 }
 
-export const scoutTemplate = (group: PositionGroup) => (group === 'GK' ? SCOUT_TEMPLATE_GK : SCOUT_TEMPLATE_OUTFIELD)
+// ---------------------------------------------------------------------------
+// Which stats a season has. Seasons can come from different sources, so a
+// radar, panel or table shows only what that season's source measured.
+// ---------------------------------------------------------------------------
+
+const measuredCache = new Map<string, boolean>()
+/** True when the season's source measures what the metric needs. */
+export function measuredInSeason(metricId: string, season: string): boolean {
+  const key = `${metricId}|${season}`
+  if (!measuredCache.has(key)) {
+    const m = METRIC[metricId]
+    const row = dataset.playerSeasons.find((r) => r.season === season)
+    measuredCache.set(key, !!m && (!row || isMeasured(m, row.stats)))
+  }
+  return measuredCache.get(key)!
+}
+
+/** The stats on a position's radar for a season: its preferred ones the season measures, with stand-ins. */
+export function radarMetrics(group: PositionGroup, season: string): string[] {
+  const prefs = group === 'GK' ? RADAR_PREFERENCES.GK : [...RADAR_PREFERENCES[group], ...OUTFIELD_SPARES]
+  return [...new Set(prefs)].filter((id) => measuredInSeason(id, season)).slice(0, group === 'GK' ? 8 : 10)
+}
+
+/** Percentile-panel categories for a season, without stats it lacks. */
+export const scoutTemplate = (group: PositionGroup, season: string) =>
+  (group === 'GK' ? SCOUT_GK : SCOUT_OUTFIELD)
+    .map((c) => ({ ...c, metrics: c.metrics.filter((id) => measuredInSeason(id, season)) }))
+    .filter((c) => c.metrics.length > 0)
+
+/** Statistics-table views for a season, keeping views with more than minutes in them. */
+export const tableViews = (season: string) =>
+  ALL_TABLE_VIEWS.map((v) => ({ ...v, metrics: v.metrics.filter((id) => measuredInSeason(id, season)) })).filter(
+    (v) => v.metrics.some((id) => id !== 'mins' && id !== 'apps'),
+  )
 
 const NOT_A_STRENGTH = new Set(['launchPct', 'touches', 'passCmp'])
 
 /** The player's best and worst stats relative to position peers. */
 export function strengthsAndWeaknesses(stats: StatLine, season: string, group: PositionGroup) {
-  const ids = Array.from(new Set([...scoutTemplate(group).flatMap((c) => c.metrics), ...RADAR_TEMPLATES[group]])).filter(
+  const ids = Array.from(new Set([...scoutTemplate(group, season).flatMap((c) => c.metrics), ...radarMetrics(group, season)])).filter(
     (id) => !NOT_A_STRENGTH.has(id),
   )
   const items = percentileItems(ids, stats, season, group).filter((i) => i.pct != null) as (PercentileItem & { pct: number })[]
@@ -201,7 +234,7 @@ export function similarPlayers(playerId: string, season: string, limit = 5) {
   const player = playerById.get(playerId)
   const own = getPlayerSeason(playerId, season)
   if (!player || !own) return []
-  const ids = RADAR_TEMPLATES[player.group]
+  const ids = radarMetrics(player.group, season)
   const vec = (s: StatLine) => ids.map((id) => percentile(id, s, season, player.group) ?? 50)
   const mine = vec(own.stats)
   const results: { row: SeasonRow; similarity: number }[] = []

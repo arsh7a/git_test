@@ -10,6 +10,12 @@ export function formatMetric(m: Metric, v: number | null | undefined, per90 = fa
   return Math.round(v).toLocaleString('en-GB')
 }
 
+/** A plain number to `digits` decimals, or "—" when the source did not measure it. */
+export function fixed(v: number, digits = 1, signed = false): string {
+  if (!Number.isFinite(v)) return '—'
+  return (signed && v > 0 ? '+' : '') + v.toFixed(digits)
+}
+
 export function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd']
   const v = n % 100

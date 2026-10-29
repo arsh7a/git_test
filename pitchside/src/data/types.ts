@@ -56,7 +56,7 @@ export interface Player {
   name: string
   firstName: string
   lastName: string
-  birthDate: string // YYYY-MM-DD
+  birthDate?: string // YYYY-MM-DD; not every source has it
   nationCode: string
   heightCm: number
   foot?: 'Right' | 'Left' | 'Either'
@@ -134,7 +134,7 @@ export interface PlayerSeason {
   season: string // e.g. "2025-26"
   clubId: string
   leagueId: string
-  age: number
+  age?: number // age during the season, when the birth date is known
   stats: StatLine
 }
 

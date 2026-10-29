@@ -7,6 +7,7 @@ import { Panel, SampleBadge, SeasonSelect, StatTile } from '../components/UI'
 import {
   MIN_MINUTES,
   ageOn,
+  hasAges,
   dataset,
   defaultSeasonFor,
   getClub,
@@ -111,7 +112,7 @@ function ProfileHeader({ player, season, seasons, onSeason }: { player: Player; 
           </div>
         </div>
         <dl className="phead-facts">
-          <div><dt>Age</dt><dd className="num">{age}</dd><dd className="sub">{formatDate(player.birthDate)}</dd></div>
+          {player.birthDate && <div><dt>Age</dt><dd className="num">{age}</dd><dd className="sub">{formatDate(player.birthDate)}</dd></div>}
           {player.heightCm > 0 && <div><dt>Height</dt><dd className="num">{player.heightCm} cm</dd></div>}
           {player.foot && <div><dt>Foot</dt><dd>{player.foot}</dd></div>}
           {player.contractUntil && <div><dt>Contract</dt><dd className="num">Jun {player.contractUntil}</dd></div>}
@@ -186,7 +187,7 @@ function PlayerDetails({ player }: { player: Player }) {
     <Panel title="Details">
       <dl className="details">
         <dt>Full name</dt><dd>{player.firstName} {player.lastName}</dd>
-        <dt>Date of birth</dt><dd>{formatDate(player.birthDate)} ({ageOn(player.birthDate)})</dd>
+        {player.birthDate && <><dt>Date of birth</dt><dd>{formatDate(player.birthDate)} ({ageOn(player.birthDate)})</dd></>}
         <dt>Nationality</dt><dd><Flag code={player.nationCode} size={11} /> {getNation(player.nationCode)?.name}</dd>
         {player.heightCm > 0 && <><dt>Height</dt><dd>{player.heightCm} cm</dd></>}
         {player.foot && <><dt>Preferred foot</dt><dd>{player.foot}</dd></>}
@@ -301,7 +302,7 @@ function Overview({ player, row }: { player: Player; row: PlayerSeason }) {
                   <Link to={`/players/${r.player.id}?season=${season}`} className="similar-main">
                     <ClubBadge clubId={r.club.id} size={18} />
                     <span className="similar-name">{r.player.name}</span>
-                    <span className="similar-meta">{r.club.shortName} · {r.age}</span>
+                    <span className="similar-meta">{r.club.shortName}{r.age != null ? ` · ${r.age}` : ''}</span>
                   </Link>
                   <span className="similar-score num" title="Similarity of percentile profiles (100 = identical)">{similarity}%</span>
                   <Link className="similar-cmp" to={`/compare?a=${player.id}&b=${r.player.id}&sa=${season}&sb=${season}`} title={`Compare with ${r.player.name}`}>
@@ -458,7 +459,7 @@ function CareerTab({ player }: { player: Player }) {
 
   const cols: Column<PlayerSeason>[] = [
     { key: 'season', label: 'Season', align: 'left', render: (r) => <Link to={`/players/${player.id}?season=${r.season}`}>{r.season}</Link>, sortValue: (r) => r.season },
-    { key: 'age', label: 'Age', align: 'right', render: (r) => r.age, sortValue: (r) => r.age },
+    ...(hasAges ? [{ key: 'age', label: 'Age', align: 'right', render: (r) => r.age, sortValue: (r) => r.age ?? 0 } as Column<PlayerSeason>] : []),
     { key: 'club', label: 'Club', align: 'left', render: (r) => <span className="cell-club"><ClubBadge clubId={r.clubId} size={15} /> {getClub(r.clubId)?.name}</span>, sortValue: (r) => getClub(r.clubId)?.name ?? '' },
     { key: 'league', label: 'League', align: 'left', render: (r) => <Link to={`/leagues/${r.leagueId}`}>{getLeague(r.leagueId)?.name}</Link> },
     { key: 'apps', label: 'MP', title: 'Matches played', align: 'right', render: (r) => r.stats.apps, sortValue: (r) => r.stats.apps },
@@ -490,7 +491,7 @@ function CareerTab({ player }: { player: Player }) {
   const footer = (
     <tr className="total-row">
       <td>Total</td>
-      <td />
+      {hasAges && <td />}
       <td>{spells.length} club{spells.length === 1 ? '' : 's'}</td>
       <td />
       <td className="al-right num">{total.apps}</td>

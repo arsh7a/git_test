@@ -31,7 +31,7 @@ function pickFeatured() {
     best('Ball progressor', ['progPasses', 'progCarries', 'dribblesSucc'], (r) => ['CM', 'DM'].includes(r.player.group), true),
     best('Defensive anchor', ['tklInt'], (r) => ['CB', 'DM', 'FB'].includes(r.player.group), true),
     best('Shot stopper', ['psxgDiff', 'savePct'], (r) => r.player.group === 'GK', false),
-    best('Rising talent (U21)', ['npxgXag', 'ga'], (r) => r.age <= 21, true),
+    best('Rising talent (U21)', ['npxgXag', 'ga'], (r) => r.age != null && r.age <= 21, true),
   ].filter((f) => f != null)
 }
 

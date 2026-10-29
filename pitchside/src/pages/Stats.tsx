@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { DataTable, type Column } from '../components/DataTable'
 import { ClubBadge, Flag } from '../components/Identity'
 import { Panel, Segmented } from '../components/UI'
-import { dataset, getSeasonRows, type SeasonRow } from '../data'
+import { dataset, getSeasonRows, hasAges, type SeasonRow } from '../data'
 import { GROUP_LABEL, METRIC, TABLE_VIEWS, metricValue } from '../data/metrics'
 import type { PositionGroup } from '../data/types'
 import { formatMetric } from '../lib/format'
@@ -69,8 +69,8 @@ export function Stats() {
       if (league && r.league.id !== league) return false
       if (club && r.club.id !== club) return false
       if (positions.length && !positions.includes(r.player.group)) return false
-      if (ageMin != null && r.age < ageMin) return false
-      if (ageMax != null && r.age > ageMax) return false
+      if (ageMin != null && (r.age == null || r.age < ageMin)) return false
+      if (ageMax != null && (r.age == null || r.age > ageMax)) return false
       if (r.stats.mins < minMins) return false
       if (metricFilter && metricMin != null) {
         const v = metricValue(metricFilter, r.stats, per90 && metricFilter.per90)
@@ -96,7 +96,7 @@ export function Stats() {
     { key: 'pos', label: 'Pos', title: 'Position', align: 'left', sortValue: (r) => GROUPS.indexOf(r.player.group), render: (r) => <span className="pos-badge" title={GROUP_LABEL[r.player.group]}>{r.player.group}</span> },
     { key: 'club', label: 'Club', align: 'left', sortValue: (r) => r.club.name, render: (r) => <span className="cell-club"><ClubBadge clubId={r.club.id} size={14} /> {r.club.shortName}</span> },
     { key: 'league', label: 'League', align: 'left', sortValue: (r) => r.league.name, render: (r) => <span className="muted">{r.league.name}</span> },
-    { key: 'age', label: 'Age', align: 'right', sortValue: (r) => r.age, render: (r) => r.age },
+    ...(hasAges ? [{ key: 'age', label: 'Age', align: 'right', sortValue: (r) => r.age ?? 0, render: (r) => r.age } as Column<SeasonRow>] : []),
     ...view.metrics.map<Column<SeasonRow>>((id) => {
       const m = METRIC[id]
       const usePer90 = per90 && m.per90
@@ -154,14 +154,14 @@ export function Stats() {
               {clubOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
-          <div className="field">
+          {hasAges && <div className="field">
             <span>Age</span>
             <div className="range-inputs">
               <input type="number" min={15} max={45} placeholder="Min" value={ageMin ?? ''} onChange={(e) => set({ ageMin: e.target.value })} aria-label="Minimum age" />
               <span className="muted">–</span>
               <input type="number" min={15} max={45} placeholder="Max" value={ageMax ?? ''} onChange={(e) => set({ ageMax: e.target.value })} aria-label="Maximum age" />
             </div>
-          </div>
+          </div>}
           <label className="field">
             <span>Minimum minutes</span>
             <select value={minMins} onChange={(e) => set({ minMins: e.target.value })}>

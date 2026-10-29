@@ -51,7 +51,11 @@ export function defaultSeasonFor(id: string): string {
   return rows.length ? rows[rows.length - 1].season : dataset.currentSeason
 }
 
-export function ageOn(birthDate: string, on: Date = new Date()): number {
+/** True when the data source knows players' ages. */
+export const hasAges = dataset.playerSeasons.some((r) => r.age != null)
+
+export function ageOn(birthDate: string | undefined, on: Date = new Date()): number | undefined {
+  if (!birthDate) return undefined
   const b = new Date(birthDate + 'T00:00:00')
   let age = on.getFullYear() - b.getFullYear()
   const m = on.getMonth() - b.getMonth()
@@ -92,7 +96,7 @@ export interface SeasonRow {
   club: Club
   league: League
   season: string
-  age: number
+  age?: number
   stats: StatLine
 }
 
@@ -260,7 +264,7 @@ export function clubSummaries(leagueId: string, season: string): ClubSeasonSumma
       xg: mine.reduce((a, r) => a + r.stats.xg, 0),
       goalsAgainst: mine.reduce((a, r) => a + r.stats.goalsAgainst, 0),
       xga: mine.reduce((a, r) => a + r.stats.psxg, 0),
-      avgAge: mine.reduce((a, r) => a + r.age * r.stats.mins, 0) / totalMins,
+      avgAge: mine.reduce((a, r) => a + (r.age ?? 0) * r.stats.mins, 0) / totalMins,
     }
   })
 }

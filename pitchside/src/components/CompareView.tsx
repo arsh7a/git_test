@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ageOn, getClub, getPlayerSeason, getPlayerSeasons, percentile } from '../data'
+import { ageOn, getClub, getNation, getPlayerSeason, getPlayerSeasons, percentile } from '../data'
 import { GROUP_LABEL, METRIC, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, hasMetric, metricValue } from '../data/metrics'
 import type { Player, PlayerSeason } from '../data/types'
 import { formatMetric } from '../lib/format'
@@ -57,7 +57,7 @@ function PlayerSlot({ side, player, season, onPick, onSeason, locked, excludeId 
           <span className="pos-badge">{player.primaryPosition}</span>
           <ClubBadge clubId={club.id} size={14} /> {club.shortName}
           <span className="sep" />
-          <Flag code={player.nationCode} size={10} /> {ageOn(player.birthDate)} yrs
+          <Flag code={player.nationCode} size={10} /> {player.birthDate ? `${ageOn(player.birthDate)} yrs` : getNation(player.nationCode)?.name}
         </div>
         <div className="cmp-meta muted small">{row ? `${row.stats.mins.toLocaleString('en-GB')} mins · ${row.stats.apps} apps in ${season}` : 'No minutes in this season'}</div>
       </div>

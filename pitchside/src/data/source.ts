@@ -7,3 +7,8 @@ import type { Dataset } from './types'
 const real = Object.values(import.meta.glob<Dataset>('./real/dataset.json', { eager: true, import: 'default' }))[0]
 
 export const dataset: Dataset = real ?? generateSampleDataset()
+
+/** The data provider's logo, when its terms ask for one to be shown (saved by the data script). */
+export const sourceLogo: string | undefined = real
+  ? Object.values(import.meta.glob<string>('./real/source-logo.png', { eager: true, query: '?url', import: 'default' }))[0]
+  : undefined

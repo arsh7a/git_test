@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ClubBadge, Flag, PlayerAvatar } from '../components/Identity'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/UI'
-import { dataset, getSeasonRows } from '../data'
+import { dataset, getSeasonRows, hasAges } from '../data'
 import { GROUP_LABEL, hasMetric } from '../data/metrics'
 import type { PositionGroup } from '../data/types'
 
@@ -23,7 +23,7 @@ export function Players() {
     const by: Record<SortKey, (a: (typeof list)[number], b: (typeof list)[number]) => number> = {
       mins: (a, b) => b.stats.mins - a.stats.mins,
       name: (a, b) => a.player.lastName.localeCompare(b.player.lastName),
-      age: (a, b) => a.age - b.age,
+      age: (a, b) => (a.age ?? 99) - (b.age ?? 99),
       ga: (a, b) => b.stats.goals + b.stats.assists - (a.stats.goals + a.stats.assists),
     }
     return list.sort(by[sort])
@@ -59,7 +59,7 @@ export function Players() {
               {dataset.leagues.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </label>
-          <Segmented label="Sort" value={sort} onChange={(v) => { setSort(v); setPage(0) }} options={[{ value: 'mins', label: 'Minutes' }, { value: 'ga', label: 'G+A' }, { value: 'age', label: 'Youngest' }, { value: 'name', label: 'A–Z' }]} />
+          <Segmented label="Sort" value={sort} onChange={(v) => { setSort(v); setPage(0) }} options={[{ value: 'mins', label: 'Minutes' }, { value: 'ga', label: 'G+A' }, ...(hasAges ? [{ value: 'age' as const, label: 'Youngest' }] : []), { value: 'name', label: 'A–Z' }]} />
         </div>
       </div>
 

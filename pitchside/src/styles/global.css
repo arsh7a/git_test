@@ -300,6 +300,19 @@ button, input, select {
   gap: 12px;
   flex-wrap: wrap;
 }
+.footer-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The provider's logo is drawn for light backgrounds, so it sits on a white chip in dark mode too. */
+.source-logo {
+  height: 22px;
+  width: auto;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #fff;
+}
 
 /* ---------- Search ---------- */
 .search {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { dataset } from '../data'
+import { sourceLogo } from '../data/source'
 import { SearchBox } from './SearchBox'
 
 type Theme = 'light' | 'dark'
@@ -86,7 +87,9 @@ export function Layout() {
       <footer className="footer">
         <div className="container footer-inner">
           <span>Pitchside · prototype</span>
-          <span className="muted">Data: {dataset.sourceName}. Latest season: {dataset.currentSeason}.</span>
+          <span className="muted footer-source">
+            Data: {sourceLogo ? <img src={sourceLogo} alt={dataset.sourceName} className="source-logo" /> : dataset.sourceName} · Latest season: {dataset.currentSeason}
+          </span>
         </div>
       </footer>
     </div>

@@ -8,8 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "fetch:api": "tsx scripts/fetch-api-football.ts",
-    "build:data": "tsx scripts/build-dataset.ts"
+    "data:statsbomb": "tsx scripts/statsbomb.ts"
   },
   "dependencies": {
     "react": "^19.3.1",

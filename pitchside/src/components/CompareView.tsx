@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ageOn, getClub, getPlayerSeason, getPlayerSeasons, percentile } from '../data'
-import { GROUP_LABEL, METRIC, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, metricValue } from '../data/metrics'
+import { GROUP_LABEL, METRIC, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, hasMetric, metricValue } from '../data/metrics'
 import type { Player, PlayerSeason } from '../data/types'
 import { formatMetric } from '../lib/format'
 import { RadarChart } from './Charts'
@@ -112,9 +112,13 @@ function CompareBody({ a, b, rowA, rowB, mode, setMode }: { a: Player; b: Player
   const pctA = (id: string) => percentile(id, rowA.stats, rowA.season, a.group)
   const pctB = (id: string) => percentile(id, rowB.stats, rowB.season, b.group)
 
-  const keyIds = bothGK
-    ? ['apps', 'mins', 'goalsAgainst', 'savePct', 'cleanSheets', 'psxgDiff']
-    : ['apps', 'mins', 'goals', 'assists', 'npxg', 'xag', 'sca', 'tklInt']
+  const keyIds = (
+    bothGK
+      ? ['apps', 'mins', 'goalsAgainst', 'savePct', 'cleanSheets', 'psxgDiff', 'saves', 'rating']
+      : ['apps', 'mins', 'goals', 'assists', 'npxg', 'xag', 'sca', 'tklInt', 'shots', 'keyPasses', 'rating']
+  )
+    .filter(hasMetric)
+    .slice(0, bothGK ? 6 : 8)
 
   const allIds = template.flatMap((c) => c.metrics)
   let winsA = 0

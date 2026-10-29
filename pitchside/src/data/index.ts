@@ -1,18 +1,13 @@
 import { METRIC, METRICS, RADAR_TEMPLATES, SCOUT_TEMPLATE_GK, SCOUT_TEMPLATE_OUTFIELD, metricValue } from './metrics'
-import { generateSampleDataset } from './sample/generate'
-import type { Club, Dataset, League, Nation, Player, PlayerSeason, PositionGroup, StatLine } from './types'
+import { dataset } from './source'
+import type { Club, League, Nation, Player, PlayerSeason, PositionGroup, StatLine } from './types'
 
 // ---------------------------------------------------------------------------
-// The single entry point for football data.
-// To connect a real data source later, replace `loadDataset()` with code that
-// returns the same `Dataset` shape. Every page reads data through this file.
+// The single entry point for football data. Every page reads data through
+// this file; `./source` decides whether that is real or sample data.
 // ---------------------------------------------------------------------------
 
-function loadDataset(): Dataset {
-  return generateSampleDataset()
-}
-
-export const dataset: Dataset = loadDataset()
+export { dataset }
 
 /** Players need this many minutes in a season to be part of percentile pools. */
 export const MIN_MINUTES = 900
@@ -228,6 +223,7 @@ export function leaders(
   opts: { leagueId?: string; per90?: boolean; minMins?: number; groups?: PositionGroup[]; limit?: number } = {},
 ) {
   const m = METRIC[metricId]
+  if (!m) return [] // not measured by this data source
   const rows = getSeasonRows(season).filter(
     (r) =>
       (!opts.leagueId || r.league.id === opts.leagueId) &&

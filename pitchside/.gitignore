@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Raw API-Football responses (licensed data, kept local)
+data-cache
+src/data/real

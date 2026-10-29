@@ -1,4 +1,5 @@
 import { createRng, type Rng } from '../rng'
+import { EMPTY_LINE, STAT_KEYS } from '../statline'
 import type {
   Club,
   Dataset,
@@ -212,15 +213,7 @@ function generateLine(
   const subs = leftover > 0 ? Math.max(1, Math.round(leftover / 22)) : 0
   const apps = Math.min(MATCHES, starts + subs)
 
-  const zero: StatLine = {
-    apps, starts, mins, goals: 0, assists: 0, npg: 0, pkGoals: 0, pkAtt: 0, xg: 0, npxg: 0, xag: 0,
-    shots: 0, sot: 0, passCmp: 0, passAtt: 0, progPasses: 0, keyPasses: 0, finalThirdPasses: 0, crosses: 0,
-    touches: 0, touchesBox: 0, progCarries: 0, progRec: 0, dribblesAtt: 0, dribblesSucc: 0, dispossessed: 0,
-    tackles: 0, tacklesWon: 0, interceptions: 0, blocks: 0, clearances: 0, recoveries: 0, aerialsWon: 0,
-    aerialsLost: 0, errors: 0, fouls: 0, fouled: 0, yellows: 0, reds: 0, sca: 0, gca: 0,
-    sotAgainst: 0, saves: 0, goalsAgainst: 0, cleanSheets: 0, psxg: 0, crossesFaced: 0, crossesStopped: 0,
-    sweeperActions: 0, launches: 0,
-  }
+  const zero: StatLine = { ...EMPTY_LINE, apps, starts, mins }
 
   if (group === 'GK') {
     const sotA90 = (5.0 - 2.2 * t) * clamp(rng.normal(1, 0.06), 0.8, 1.2)
@@ -480,6 +473,8 @@ export function generateSampleDataset(seed = 20251): Dataset {
   return {
     isSample: true,
     sourceName: 'Pitchside sample data (fictional, generated)',
+    // The generator does not model duels or match ratings.
+    availableStats: STAT_KEYS.filter((k) => k !== 'duels' && k !== 'duelsWon' && k !== 'ratingMins'),
     seasons: SEASONS,
     currentSeason: CURRENT_SEASON,
     nations: NATIONS.map(({ code, name, flag }) => ({ code, name, flag })),

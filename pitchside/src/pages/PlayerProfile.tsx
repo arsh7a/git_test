@@ -22,7 +22,7 @@ import {
   similarPlayers,
   strengthsAndWeaknesses,
 } from '../data'
-import { GROUP_LABEL, METRIC, METRICS, RADAR_TEMPLATES, metricValue, type MetricCategory } from '../data/metrics'
+import { GROUP_LABEL, METRIC, METRICS, RADAR_TEMPLATES, hasMetric, metricValue, type MetricCategory } from '../data/metrics'
 import type { Player, PlayerSeason } from '../data/types'
 import { formatDate, formatMetric, ordinal } from '../lib/format'
 import { NotFound } from './NotFound'
@@ -62,7 +62,7 @@ export function PlayerProfile() {
       </nav>
       {!row ? (
         <Panel>
-          <p className="empty-state">No league minutes are recorded for {player.name} in the sample data.</p>
+          <p className="empty-state">No league minutes are recorded for {player.name} in this data.</p>
         </Panel>
       ) : tab === '' ? (
         <Overview player={player} row={row} />
@@ -93,7 +93,7 @@ function ProfileHeader({ player, season, seasons, onSeason }: { player: Player; 
         <PlayerAvatar player={player} size={92} />
         <div className="phead-id">
           <div className="phead-top">
-            <span className="shirt num" title="Shirt number">{player.shirtNumber}</span>
+            {player.shirtNumber != null && <span className="shirt num" title="Shirt number">{player.shirtNumber}</span>}
             <h1>{player.name}</h1>
             <SampleBadge />
           </div>
@@ -112,9 +112,9 @@ function ProfileHeader({ player, season, seasons, onSeason }: { player: Player; 
         </div>
         <dl className="phead-facts">
           <div><dt>Age</dt><dd className="num">{age}</dd><dd className="sub">{formatDate(player.birthDate)}</dd></div>
-          <div><dt>Height</dt><dd className="num">{player.heightCm} cm</dd></div>
-          <div><dt>Foot</dt><dd>{player.foot}</dd></div>
-          <div><dt>Contract</dt><dd className="num">Jun {player.contractUntil}</dd></div>
+          {player.heightCm > 0 && <div><dt>Height</dt><dd className="num">{player.heightCm} cm</dd></div>}
+          {player.foot && <div><dt>Foot</dt><dd>{player.foot}</dd></div>}
+          {player.contractUntil && <div><dt>Contract</dt><dd className="num">Jun {player.contractUntil}</dd></div>}
         </dl>
         <div className="phead-actions">
           <SeasonSelect value={season} seasons={seasons.length ? seasons : [season]} onChange={onSeason} />
@@ -141,22 +141,43 @@ function SeasonSummary({ player, row }: { player: Player; row: PlayerSeason }) {
         <StatTile label="Minutes" value={s.mins.toLocaleString('en-GB')} sub={`${Math.round((s.mins / (league.matchesPerSeason * 90)) * 100)}% of max`} />
         {player.group === 'GK' ? (
           <>
-            <StatTile label="Clean sheets" value={s.cleanSheets} sub={s.starts ? `${Math.round((s.cleanSheets / s.starts) * 100)}% of starts` : '—'} />
+            {hasMetric('cleanSheets') ? (
+              <StatTile label="Clean sheets" value={s.cleanSheets} sub={s.starts ? `${Math.round((s.cleanSheets / s.starts) * 100)}% of starts` : '—'} />
+            ) : (
+              hasMetric('rating') && <RatingTile s={s} />
+            )}
             <StatTile label="Conceded" value={s.goalsAgainst} sub={`${p90(s.goalsAgainst)} per 90`} />
             <StatTile label="Save %" value={formatMetric(METRIC.savePct, metricValue(METRIC.savePct, s, false))} sub={`${s.saves} saves`} />
-            <StatTile label="Goals prevented" value={(s.psxg - s.goalsAgainst > 0 ? '+' : '') + (s.psxg - s.goalsAgainst).toFixed(1)} sub="PSxG − GA" />
+            {hasMetric('psxgDiff') ? (
+              <StatTile label="Goals prevented" value={(s.psxg - s.goalsAgainst > 0 ? '+' : '') + (s.psxg - s.goalsAgainst).toFixed(1)} sub="PSxG − GA" />
+            ) : (
+              <StatTile label="Saves" value={s.saves} sub={`${p90(s.saves)} per 90`} />
+            )}
           </>
         ) : (
           <>
             <StatTile label="Goals" value={s.goals} sub={`${p90(s.goals)} per 90${s.pkGoals ? ` · ${s.pkGoals} pen` : ''}`} />
             <StatTile label="Assists" value={s.assists} sub={`${p90(s.assists)} per 90`} />
-            <StatTile label="xG" value={s.xg.toFixed(1)} sub={`npxG ${s.npxg.toFixed(1)}`} />
-            <StatTile label="xAG" value={s.xag.toFixed(1)} sub={`${p90(s.xag)} per 90`} />
+            {hasMetric('xg') ? (
+              <>
+                <StatTile label="xG" value={s.xg.toFixed(1)} sub={`npxG ${s.npxg.toFixed(1)}`} />
+                <StatTile label="xAG" value={s.xag.toFixed(1)} sub={`${p90(s.xag)} per 90`} />
+              </>
+            ) : (
+              <>
+                <StatTile label="Shots" value={s.shots} sub={`${s.sot} on target`} />
+                {hasMetric('rating') ? <RatingTile s={s} /> : <StatTile label="Key passes" value={s.keyPasses} sub={`${p90(s.keyPasses)} per 90`} />}
+              </>
+            )}
           </>
         )}
       </div>
     </Panel>
   )
+}
+
+function RatingTile({ s }: { s: PlayerSeason['stats'] }) {
+  return <StatTile label="Avg rating" value={formatMetric(METRIC.rating, metricValue(METRIC.rating, s, false))} sub="minutes-weighted" />
 }
 
 function PlayerDetails({ player }: { player: Player }) {
@@ -167,11 +188,11 @@ function PlayerDetails({ player }: { player: Player }) {
         <dt>Full name</dt><dd>{player.firstName} {player.lastName}</dd>
         <dt>Date of birth</dt><dd>{formatDate(player.birthDate)} ({ageOn(player.birthDate)})</dd>
         <dt>Nationality</dt><dd><Flag code={player.nationCode} size={11} /> {getNation(player.nationCode)?.name}</dd>
-        <dt>Height</dt><dd>{player.heightCm} cm</dd>
-        <dt>Preferred foot</dt><dd>{player.foot}</dd>
+        {player.heightCm > 0 && <><dt>Height</dt><dd>{player.heightCm} cm</dd></>}
+        {player.foot && <><dt>Preferred foot</dt><dd>{player.foot}</dd></>}
         <dt>Club</dt><dd><Link to={`/stats?club=${club.id}`}>{club.name}</Link></dd>
-        <dt>Shirt number</dt><dd>{player.shirtNumber}</dd>
-        <dt>Contract expires</dt><dd>30 Jun {player.contractUntil}</dd>
+        {player.shirtNumber != null && <><dt>Shirt number</dt><dd>{player.shirtNumber}</dd></>}
+        {player.contractUntil && <><dt>Contract expires</dt><dd>30 Jun {player.contractUntil}</dd></>}
       </dl>
     </Panel>
   )
@@ -293,8 +314,10 @@ function Overview({ player, row }: { player: Player; row: PlayerSeason }) {
         </Panel>
         {history.length > 1 && (
           <Panel title="Recent seasons">
-            {player.group === 'GK' ? (
+            {player.group === 'GK' && hasMetric('cleanSheets') ? (
               <SeasonBars title="Clean sheets" items={history.map((h) => ({ label: h.season, value: h.stats.cleanSheets }))} format={(v) => String(v)} />
+            ) : player.group === 'GK' ? (
+              <SeasonBars title="Saves" items={history.map((h) => ({ label: h.season, value: h.stats.saves }))} format={(v) => String(v)} />
             ) : (
               <SeasonBars title="Goals + assists" items={history.map((h) => ({ label: h.season, value: h.stats.goals + h.stats.assists }))} format={(v) => String(v)} />
             )}
@@ -418,6 +441,9 @@ function CareerTab({ player }: { player: Player }) {
     { apps: 0, starts: 0, mins: 0, goals: 0, assists: 0, xg: 0, xag: 0, npxg: 0, goalsAgainst: 0, saves: 0, sotAgainst: 0, cleanSheets: 0, psxg: 0, yellows: 0, reds: 0 },
   )
   const p90 = (v: number, mins: number) => (mins ? (v / (mins / 90)).toFixed(2) : '—')
+  const hasCS = hasMetric('cleanSheets')
+  const hasPsxg = hasMetric('psxgDiff')
+  const hasXg = hasMetric('xg')
 
   // Club spells, FM-style.
   const spells: { clubId: string; from: string; to: string; apps: number; goals: number }[] = []
@@ -443,16 +469,20 @@ function CareerTab({ player }: { player: Player }) {
           { key: 'ga', label: 'GA', title: 'Goals conceded', align: 'right', render: (r) => r.stats.goalsAgainst, sortValue: (r) => r.stats.goalsAgainst },
           { key: 'saves', label: 'Saves', align: 'right', render: (r) => r.stats.saves, sortValue: (r) => r.stats.saves },
           { key: 'savePct', label: 'Save%', align: 'right', render: (r) => formatMetric(METRIC.savePct, metricValue(METRIC.savePct, r.stats, false)), sortValue: (r) => metricValue(METRIC.savePct, r.stats, false) },
-          { key: 'cs', label: 'CS', title: 'Clean sheets', align: 'right', render: (r) => r.stats.cleanSheets, sortValue: (r) => r.stats.cleanSheets },
-          { key: 'psxgd', label: 'PSxG±', title: 'Goals prevented', align: 'right', render: (r) => (r.stats.psxg - r.stats.goalsAgainst).toFixed(1), sortValue: (r) => r.stats.psxg - r.stats.goalsAgainst },
+          ...(hasCS ? [{ key: 'cs', label: 'CS', title: 'Clean sheets', align: 'right', render: (r) => r.stats.cleanSheets, sortValue: (r) => r.stats.cleanSheets }] as Column<PlayerSeason>[] : []),
+          ...(hasPsxg ? [{ key: 'psxgd', label: 'PSxG±', title: 'Goals prevented', align: 'right', render: (r) => (r.stats.psxg - r.stats.goalsAgainst).toFixed(1), sortValue: (r) => r.stats.psxg - r.stats.goalsAgainst }] as Column<PlayerSeason>[] : []),
         ] as Column<PlayerSeason>[])
       : ([
           { key: 'goals', label: 'Gls', title: 'Goals', align: 'right', render: (r) => r.stats.goals, sortValue: (r) => r.stats.goals },
           { key: 'assists', label: 'Ast', title: 'Assists', align: 'right', render: (r) => r.stats.assists, sortValue: (r) => r.stats.assists },
-          { key: 'xg', label: 'xG', align: 'right', render: (r) => r.stats.xg.toFixed(1), sortValue: (r) => r.stats.xg },
-          { key: 'xag', label: 'xAG', align: 'right', render: (r) => r.stats.xag.toFixed(1), sortValue: (r) => r.stats.xag },
+          ...(hasXg
+            ? [
+                { key: 'xg', label: 'xG', align: 'right', render: (r) => r.stats.xg.toFixed(1), sortValue: (r) => r.stats.xg },
+                { key: 'xag', label: 'xAG', align: 'right', render: (r) => r.stats.xag.toFixed(1), sortValue: (r) => r.stats.xag },
+              ] as Column<PlayerSeason>[]
+            : []),
           { key: 'ga90', label: 'G+A/90', title: 'Goals plus assists per 90 minutes', align: 'right', render: (r) => p90(r.stats.goals + r.stats.assists, r.stats.mins), sortValue: (r) => (r.stats.goals + r.stats.assists) / Math.max(r.stats.mins, 1) },
-          { key: 'xgxag90', label: 'npxG+xAG/90', title: 'Expected goal involvement per 90', align: 'right', render: (r) => p90(r.stats.npxg + r.stats.xag, r.stats.mins), sortValue: (r) => (r.stats.npxg + r.stats.xag) / Math.max(r.stats.mins, 1) },
+          ...(hasXg ? [{ key: 'xgxag90', label: 'npxG+xAG/90', title: 'Expected goal involvement per 90', align: 'right', render: (r) => p90(r.stats.npxg + r.stats.xag, r.stats.mins), sortValue: (r) => (r.stats.npxg + r.stats.xag) / Math.max(r.stats.mins, 1) }] as Column<PlayerSeason>[] : []),
         ] as Column<PlayerSeason>[])),
     { key: 'cards', label: 'Cards', title: 'Yellow / red cards', align: 'right', render: (r) => `${r.stats.yellows} / ${r.stats.reds}` },
   ]
@@ -471,17 +501,17 @@ function CareerTab({ player }: { player: Player }) {
           <td className="al-right num">{total.goalsAgainst}</td>
           <td className="al-right num">{total.saves}</td>
           <td className="al-right num">{total.sotAgainst ? `${((total.saves / total.sotAgainst) * 100).toFixed(1)}%` : '—'}</td>
-          <td className="al-right num">{total.cleanSheets}</td>
-          <td className="al-right num">{(total.psxg - total.goalsAgainst).toFixed(1)}</td>
+          {hasCS && <td className="al-right num">{total.cleanSheets}</td>}
+          {hasPsxg && <td className="al-right num">{(total.psxg - total.goalsAgainst).toFixed(1)}</td>}
         </>
       ) : (
         <>
           <td className="al-right num">{total.goals}</td>
           <td className="al-right num">{total.assists}</td>
-          <td className="al-right num">{total.xg.toFixed(1)}</td>
-          <td className="al-right num">{total.xag.toFixed(1)}</td>
+          {hasXg && <td className="al-right num">{total.xg.toFixed(1)}</td>}
+          {hasXg && <td className="al-right num">{total.xag.toFixed(1)}</td>}
           <td className="al-right num">{p90(total.goals + total.assists, total.mins)}</td>
-          <td className="al-right num">{p90(total.npxg + total.xag, total.mins)}</td>
+          {hasXg && <td className="al-right num">{p90(total.npxg + total.xag, total.mins)}</td>}
         </>
       )}
       <td className="al-right num">{total.yellows} / {total.reds}</td>
@@ -490,7 +520,7 @@ function CareerTab({ player }: { player: Player }) {
 
   return (
     <div className="career">
-      <Panel title="League career" actions={<span className="panel-meta">Sample data · {rows.length} season{rows.length === 1 ? '' : 's'}</span>} flush>
+      <Panel title="League career" actions={<span className="panel-meta">{dataset.isSample ? 'Sample data · ' : ''}{rows.length} season{rows.length === 1 ? '' : 's'}</span>} flush>
         <DataTable columns={cols} rows={rows} rowKey={(r) => r.season + r.clubId} initialSort={{ key: 'season', dir: 'desc' }} footer={footer} />
       </Panel>
       <div className="career-bottom">
@@ -517,12 +547,12 @@ function CareerTab({ player }: { player: Player }) {
             {isGK ? (
               <>
                 <SeasonBars title="Save %" items={rows.map((r) => ({ label: r.season, value: (metricValue(METRIC.savePct, r.stats, false) ?? 0) * 100 }))} format={(v) => `${v.toFixed(1)}%`} />
-                <SeasonBars title="Clean sheets" items={rows.map((r) => ({ label: r.season, value: r.stats.cleanSheets }))} format={(v) => String(v)} />
+                {hasCS && <SeasonBars title="Clean sheets" items={rows.map((r) => ({ label: r.season, value: r.stats.cleanSheets }))} format={(v) => String(v)} />}
               </>
             ) : (
               <>
                 <SeasonBars title="Goals + assists" items={rows.map((r) => ({ label: r.season, value: r.stats.goals + r.stats.assists }))} format={(v) => String(v)} />
-                <SeasonBars title="npxG + xAG per 90" items={rows.map((r) => ({ label: r.season, value: r.stats.mins ? (r.stats.npxg + r.stats.xag) / (r.stats.mins / 90) : 0 }))} format={(v) => v.toFixed(2)} />
+                {hasXg && <SeasonBars title="npxG + xAG per 90" items={rows.map((r) => ({ label: r.season, value: r.stats.mins ? (r.stats.npxg + r.stats.xag) / (r.stats.mins / 90) : 0 }))} format={(v) => v.toFixed(2)} />}
               </>
             )}
           </div>

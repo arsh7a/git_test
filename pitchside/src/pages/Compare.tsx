@@ -4,15 +4,15 @@ import { ClubBadge } from '../components/Identity'
 import { Panel } from '../components/UI'
 import { MIN_MINUTES, dataset, defaultSeasonFor, getPlayer, leaders } from '../data'
 import type { PositionGroup } from '../data/types'
-import { GROUP_LABEL } from '../data/metrics'
+import { GROUP_LABEL, firstAvailable } from '../data/metrics'
 
-// Suggested match-ups: the top two players by a key stat in several positions.
-const SUGGESTIONS: { group: PositionGroup; metricId: string }[] = [
-  { group: 'ST', metricId: 'npg' },
-  { group: 'W', metricId: 'xag' },
-  { group: 'CM', metricId: 'progPasses' },
-  { group: 'CB', metricId: 'tklInt' },
-  { group: 'GK', metricId: 'psxgDiff' },
+// Suggested match-ups: the top two players by a key stat (first available) in several positions.
+const SUGGESTIONS: { group: PositionGroup; metricIds: string[] }[] = [
+  { group: 'ST', metricIds: ['npg'] },
+  { group: 'W', metricIds: ['xag', 'keyPasses'] },
+  { group: 'CM', metricIds: ['progPasses', 'keyPasses'] },
+  { group: 'CB', metricIds: ['tklInt'] },
+  { group: 'GK', metricIds: ['psxgDiff', 'savePct'] },
 ]
 
 export function Compare() {
@@ -29,7 +29,7 @@ export function Compare() {
   }
 
   const suggestions = SUGGESTIONS.map((s) => {
-    const top = leaders(dataset.currentSeason, s.metricId, { groups: [s.group], minMins: MIN_MINUTES, per90: true, limit: 2 })
+    const top = leaders(dataset.currentSeason, firstAvailable(...s.metricIds) ?? '', { groups: [s.group], minMins: MIN_MINUTES, per90: true, limit: 2 })
     return { ...s, pair: top.map((t) => t.row) }
   }).filter((s) => s.pair.length === 2)
 
@@ -50,7 +50,7 @@ export function Compare() {
         onSeason={(side, s) => update({ [side === 'a' ? 'sa' : 'sb']: s })}
       />
       {(!a || !b) && (
-        <Panel title="Suggested comparisons" actions={<span className="panel-meta">{dataset.currentSeason} · sample data</span>} flush>
+        <Panel title="Suggested comparisons" actions={<span className="panel-meta">{dataset.currentSeason}{dataset.isSample ? ' · sample data' : ''}</span>} flush>
           <ul className="suggest">
             {suggestions.map((s) => (
               <li key={s.group}>

@@ -4,7 +4,7 @@ import { ClubBadge, Flag, PlayerAvatar } from '../components/Identity'
 import { SearchBox } from '../components/SearchBox'
 import { Segmented } from '../components/UI'
 import { dataset, getSeasonRows } from '../data'
-import { GROUP_LABEL } from '../data/metrics'
+import { GROUP_LABEL, hasMetric } from '../data/metrics'
 import type { PositionGroup } from '../data/types'
 
 const GROUPS: PositionGroup[] = ['GK', 'CB', 'FB', 'DM', 'CM', 'AM', 'W', 'ST']
@@ -78,7 +78,7 @@ export function Players() {
             <div className="pcard-stats">
               <span><Flag code={r.player.nationCode} size={10} /> {r.age}</span>
               <span className="num">{r.stats.mins.toLocaleString('en-GB')}′</span>
-              {r.player.group === 'GK' ? <span className="num">{r.stats.cleanSheets} CS</span> : <span className="num">{r.stats.goals}G {r.stats.assists}A</span>}
+              {r.player.group === 'GK' ? <span className="num">{hasMetric('cleanSheets') ? `${r.stats.cleanSheets} CS` : `${r.stats.saves} saves`}</span> : <span className="num">{r.stats.goals}G {r.stats.assists}A</span>}
             </div>
           </Link>
         ))}

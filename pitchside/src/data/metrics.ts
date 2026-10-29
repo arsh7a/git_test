@@ -1,7 +1,10 @@
-import type { PositionGroup, StatLine } from './types'
+import { dataset } from './source'
+import { EMPTY_LINE, STAT_KEYS } from './statline'
+import type { PositionGroup, StatKey, StatLine } from './types'
 
 // Every statistic the site can display, described once. Tables, percentile
-// bars, radars and comparisons all read from this list.
+// bars, radars and comparisons all read from this list. Stats the current data
+// source does not measure are left out automatically (see `METRICS` below).
 
 export type MetricFormat = 'int' | 'dec1' | 'dec2' | 'pct'
 
@@ -36,12 +39,13 @@ export interface Metric {
 
 const pct = (a: number, b: number) => (b > 0 ? a / b : null)
 
-export const METRICS: Metric[] = [
+const ALL_METRICS: Metric[] = [
   // Playing time
   { id: 'apps', label: 'Appearances', short: 'MP', category: 'Playing time', description: 'Matches played, as a starter or substitute.', format: 'int', per90: false, scope: 'all', value: (s) => s.apps },
   { id: 'starts', label: 'Starts', short: 'Starts', category: 'Playing time', description: 'Matches started.', format: 'int', per90: false, scope: 'all', value: (s) => s.starts },
   { id: 'mins', label: 'Minutes', short: 'Min', category: 'Playing time', description: 'Total minutes played.', format: 'int', per90: false, scope: 'all', value: (s) => s.mins },
   { id: 'nineties', label: '90s played', short: '90s', category: 'Playing time', description: 'Minutes divided by 90 — the number of "full matches" played.', format: 'dec1', per90: false, scope: 'all', value: (s) => s.mins / 90 },
+  { id: 'rating', label: 'Average match rating', short: 'Rating', category: 'Playing time', description: 'The data provider\'s 0–10 match rating, averaged over the season and weighted by minutes played.', format: 'dec2', per90: false, scope: 'all', value: (s) => pct(s.ratingMins, s.mins), minVolume: (s) => s.mins >= 270 },
 
   // Shooting
   { id: 'goals', label: 'Goals', short: 'Gls', category: 'Shooting', description: 'Goals scored, including penalties.', format: 'int', per90: true, scope: 'outfield', value: (s) => s.goals },
@@ -93,6 +97,8 @@ export const METRICS: Metric[] = [
   { id: 'recoveries', label: 'Ball recoveries', short: 'Recov', category: 'Defending', description: 'Loose balls won back.', format: 'int', per90: true, scope: 'outfield', value: (s) => s.recoveries },
   { id: 'aerialsWon', label: 'Aerial duels won', short: 'Aer W', category: 'Defending', description: 'Headers won against an opponent.', format: 'int', per90: true, scope: 'outfield', value: (s) => s.aerialsWon },
   { id: 'aerialPct', label: 'Aerial win rate', short: 'Aer%', category: 'Defending', description: 'Percentage of aerial duels won.', format: 'pct', per90: false, scope: 'outfield', value: (s) => pct(s.aerialsWon, s.aerialsWon + s.aerialsLost), minVolume: (s) => s.aerialsWon + s.aerialsLost >= 15 },
+  { id: 'duelsWon', label: 'Duels won', short: 'Duel W', category: 'Defending', description: 'One-on-one contests for the ball won, on the ground or in the air.', format: 'int', per90: true, scope: 'outfield', value: (s) => s.duelsWon },
+  { id: 'duelPct', label: 'Duel win rate', short: 'Duel%', category: 'Defending', description: 'Percentage of duels won.', format: 'pct', per90: false, scope: 'outfield', value: (s) => pct(s.duelsWon, s.duels), minVolume: (s) => s.duels >= 30 },
   { id: 'errors', label: 'Errors leading to shot', short: 'Err', category: 'Defending', description: 'Mistakes that led directly to an opponent\'s shot.', format: 'int', per90: true, lowerIsBetter: true, scope: 'all', value: (s) => s.errors },
 
   // Discipline
@@ -115,7 +121,32 @@ export const METRICS: Metric[] = [
   { id: 'launchPct', label: 'Long kick rate', short: 'Launch%', category: 'Goalkeeping', description: 'Share of passes that were long balls. Neither good nor bad — it reflects playing style.', format: 'pct', per90: false, scope: 'gk', value: (s) => pct(s.launches, s.passAtt), minVolume: (s) => s.passAtt >= 150 },
 ]
 
+/** The stats a metric reads, found by running it on a line that records every lookup. */
+function statsUsed(m: Metric): StatKey[] {
+  const used = new Set<StatKey>()
+  const probe = new Proxy(EMPTY_LINE, {
+    get: (_, key) => {
+      used.add(key as StatKey)
+      return 1
+    },
+  })
+  m.value(probe)
+  m.minVolume?.(probe)
+  return [...used]
+}
+
+const available = new Set<StatKey>(dataset.availableStats ?? STAT_KEYS)
+
+/** The metrics the current data source can supply. */
+export const METRICS: Metric[] = ALL_METRICS.filter((m) => statsUsed(m).every((k) => available.has(k)))
+
 export const METRIC = Object.fromEntries(METRICS.map((m) => [m.id, m])) as Record<string, Metric>
+
+export const hasMetric = (id: string) => id in METRIC
+const onlyAvailable = (ids: string[]) => ids.filter(hasMetric)
+
+/** The first of these metrics the data source supports, for places that need a single stat. */
+export const firstAvailable = (...ids: string[]): string | undefined => ids.find(hasMetric)
 
 /** Value as shown: per 90 for counting stats when `per90` is requested. */
 export function metricValue(m: Metric, s: StatLine, per90: boolean): number | null {
@@ -126,7 +157,7 @@ export function metricValue(m: Metric, s: StatLine, per90: boolean): number | nu
   return v
 }
 
-export const GROUP_LABEL: Record<PositionGroup, string> = {
+const DEFAULT_GROUP_LABEL: Record<PositionGroup, string> = {
   GK: 'Goalkeepers',
   CB: 'Centre-backs',
   FB: 'Full-backs',
@@ -137,12 +168,20 @@ export const GROUP_LABEL: Record<PositionGroup, string> = {
   ST: 'Strikers',
 }
 
+export const GROUP_LABEL: Record<PositionGroup, string> = { ...DEFAULT_GROUP_LABEL, ...dataset.groupLabels }
+
+// Broad groups (a source with only defender/midfielder/forward) get the usual DF/MF/FW abbreviations.
+const BROAD_SHORT: Partial<Record<PositionGroup, string>> = dataset.groupLabels ? { CB: 'DF', CM: 'MF', ST: 'FW' } : {}
+
 export const GROUP_SHORT: Record<PositionGroup, string> = {
-  GK: 'GK', CB: 'CB', FB: 'FB', DM: 'DM', CM: 'CM', AM: 'AM', W: 'W', ST: 'ST',
+  GK: 'GK', CB: 'CB', FB: 'FB', DM: 'DM', CM: 'CM', AM: 'AM', W: 'W', ST: 'ST', ...BROAD_SHORT,
 }
 
-/** The 10 stats shown on each position's radar chart. */
-export const RADAR_TEMPLATES: Record<PositionGroup, string[]> = {
+// Stats for each position's radar chart, best first. Each radar shows the first
+// 10 (8 for keepers) that the data source supports; the extras at the end of
+// each list stand in when richer stats such as xG are missing.
+const OUTFIELD_SPARES = ['rating', 'keyPasses', 'sotPct', 'dribblePct', 'duelsWon', 'duelPct', 'fouled', 'tackles', 'interceptions', 'blocks', 'passAtt']
+const RADAR_PREFERENCES: Record<PositionGroup, string[]> = {
   ST: ['npg', 'npxg', 'shots', 'npxgPerShot', 'xag', 'sca', 'dribblesSucc', 'touchesBox', 'aerialsWon', 'tklInt'],
   W: ['npg', 'npxg', 'xag', 'keyPasses', 'sca', 'progPasses', 'progCarries', 'dribblesSucc', 'touchesBox', 'tklInt'],
   AM: ['npg', 'npxg', 'xag', 'keyPasses', 'sca', 'progPasses', 'progCarries', 'dribblesSucc', 'touchesBox', 'tklInt'],
@@ -150,31 +189,49 @@ export const RADAR_TEMPLATES: Record<PositionGroup, string[]> = {
   DM: ['xag', 'progPasses', 'passPct', 'passCmp', 'progCarries', 'tackles', 'interceptions', 'blocks', 'recoveries', 'aerialPct'],
   FB: ['xag', 'crosses', 'progPasses', 'progCarries', 'dribblesSucc', 'passPct', 'tklInt', 'blocks', 'clearances', 'aerialsWon'],
   CB: ['passPct', 'progPasses', 'progCarries', 'tackles', 'interceptions', 'blocks', 'clearances', 'aerialsWon', 'aerialPct', 'recoveries'],
-  GK: ['savePct', 'psxgDiff', 'csPct', 'saves', 'crossStopPct', 'sweeperActions', 'passPct', 'goalsAgainst'],
+  GK: ['savePct', 'psxgDiff', 'csPct', 'saves', 'crossStopPct', 'sweeperActions', 'passPct', 'goalsAgainst', 'rating'],
 }
 
+const radarFor = (ids: string[], size: number) => onlyAvailable([...new Set(ids)]).slice(0, size)
+
+/** The stats shown on each position's radar chart. */
+export const RADAR_TEMPLATES = Object.fromEntries(
+  Object.entries(RADAR_PREFERENCES).map(([g, ids]) => [g, g === 'GK' ? radarFor(ids, 8) : radarFor([...ids, ...OUTFIELD_SPARES], 10)]),
+) as Record<PositionGroup, string[]>
+
 /** Stats used in the percentile ("scouting report") panel, grouped by category. */
-export const SCOUT_TEMPLATE_OUTFIELD: { category: string; metrics: string[] }[] = [
+const SCOUT_OUTFIELD: { category: string; metrics: string[] }[] = [
   { category: 'Shooting', metrics: ['npg', 'npxg', 'shots', 'sotPct', 'npxgPerShot'] },
   { category: 'Creation', metrics: ['assists', 'xag', 'keyPasses', 'sca', 'gca'] },
   { category: 'Passing', metrics: ['passCmp', 'passPct', 'progPasses', 'finalThirdPasses', 'crosses'] },
   { category: 'Possession', metrics: ['touches', 'touchesBox', 'progCarries', 'progRec', 'dribblesSucc', 'dribblePct', 'dispossessed'] },
-  { category: 'Defending', metrics: ['tackles', 'interceptions', 'blocks', 'clearances', 'recoveries', 'aerialsWon', 'aerialPct'] },
+  { category: 'Defending', metrics: ['tackles', 'interceptions', 'blocks', 'clearances', 'recoveries', 'aerialsWon', 'aerialPct', 'duelsWon', 'duelPct'] },
 ]
 
-export const SCOUT_TEMPLATE_GK: { category: string; metrics: string[] }[] = [
+const SCOUT_GK: { category: string; metrics: string[] }[] = [
   { category: 'Shot stopping', metrics: ['savePct', 'psxgDiff', 'goalsAgainst', 'saves', 'csPct'] },
   { category: 'Command & sweeping', metrics: ['crossStopPct', 'sweeperActions'] },
   { category: 'Distribution', metrics: ['passCmp', 'passPct', 'launchPct'] },
 ]
 
+const availableTemplate = (t: { category: string; metrics: string[] }[]) =>
+  t.map((c) => ({ ...c, metrics: onlyAvailable(c.metrics) })).filter((c) => c.metrics.length > 0)
+
+export const SCOUT_TEMPLATE_OUTFIELD = availableTemplate(SCOUT_OUTFIELD)
+export const SCOUT_TEMPLATE_GK = availableTemplate(SCOUT_GK)
+
 /** Stat-table column sets used by the Statistics database. */
-export const TABLE_VIEWS: { id: string; label: string; metrics: string[]; gkOnly?: boolean }[] = [
-  { id: 'standard', label: 'Standard', metrics: ['apps', 'starts', 'mins', 'goals', 'assists', 'ga', 'npg', 'pkGoals', 'xg', 'npxg', 'xag', 'npxgXag', 'yellows', 'reds'] },
+const ALL_TABLE_VIEWS: { id: string; label: string; metrics: string[]; gkOnly?: boolean }[] = [
+  { id: 'standard', label: 'Standard', metrics: ['apps', 'starts', 'mins', 'goals', 'assists', 'ga', 'npg', 'pkGoals', 'xg', 'npxg', 'xag', 'npxgXag', 'rating', 'yellows', 'reds'] },
   { id: 'shooting', label: 'Shooting', metrics: ['mins', 'goals', 'shots', 'sot', 'sotPct', 'goalsPerShot', 'npxg', 'npxgPerShot', 'gMinusXg'] },
   { id: 'passing', label: 'Passing', metrics: ['mins', 'passCmp', 'passAtt', 'passPct', 'progPasses', 'keyPasses', 'finalThirdPasses', 'crosses', 'xag', 'assists'] },
   { id: 'creation', label: 'Chance creation', metrics: ['mins', 'sca', 'gca', 'keyPasses', 'xag', 'assists', 'fouled'] },
   { id: 'possession', label: 'Possession', metrics: ['mins', 'touches', 'touchesBox', 'progCarries', 'progRec', 'dribblesAtt', 'dribblesSucc', 'dribblePct', 'dispossessed'] },
-  { id: 'defending', label: 'Defending', metrics: ['mins', 'tackles', 'tacklesWon', 'interceptions', 'tklInt', 'blocks', 'clearances', 'recoveries', 'aerialsWon', 'aerialPct', 'errors'] },
+  { id: 'defending', label: 'Defending', metrics: ['mins', 'tackles', 'tacklesWon', 'interceptions', 'tklInt', 'blocks', 'clearances', 'recoveries', 'aerialsWon', 'aerialPct', 'duelsWon', 'duelPct', 'errors'] },
   { id: 'goalkeeping', label: 'Goalkeeping', metrics: ['apps', 'mins', 'goalsAgainst', 'sotAgainst', 'saves', 'savePct', 'cleanSheets', 'csPct', 'psxg', 'psxgDiff', 'crossStopPct', 'sweeperActions', 'launchPct'], gkOnly: true },
 ]
+
+/** Table views, keeping only columns the data source supports (and views with more than minutes in them). */
+export const TABLE_VIEWS = ALL_TABLE_VIEWS.map((v) => ({ ...v, metrics: onlyAvailable(v.metrics) })).filter(
+  (v) => v.metrics.filter((id) => id !== 'mins' && id !== 'apps').length > 0,
+)

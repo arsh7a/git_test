@@ -47,8 +47,8 @@ export interface Club {
   abbr: string
   leagueId: string
   colors: [string, string]
-  stadium: string
-  founded: number
+  stadium?: string
+  founded?: number
 }
 
 export interface Player {
@@ -59,13 +59,13 @@ export interface Player {
   birthDate: string // YYYY-MM-DD
   nationCode: string
   heightCm: number
-  foot: 'Right' | 'Left' | 'Either'
+  foot?: 'Right' | 'Left' | 'Either'
   primaryPosition: Position
   secondaryPositions: Position[]
   group: PositionGroup
   clubId: string // current club
-  shirtNumber: number
-  contractUntil: number
+  shirtNumber?: number
+  contractUntil?: number
 }
 
 /** Raw season totals. Rates (percentages, per 90s) are calculated from these. */
@@ -111,6 +111,10 @@ export interface StatLine {
   reds: number
   sca: number
   gca: number
+  duels: number
+  duelsWon: number
+  /** Sum of (match rating × minutes); divided by minutes gives the average rating. */
+  ratingMins: number
   // Goalkeeping
   sotAgainst: number
   saves: number
@@ -138,6 +142,10 @@ export interface Dataset {
   /** True while the site runs on generated sample data. */
   isSample: boolean
   sourceName: string
+  /** Stats this source actually measures. Metrics needing anything else are hidden. Omitted = all. */
+  availableStats?: StatKey[]
+  /** Renames position groups when a source only knows broad positions (e.g. CB → "Defenders"). */
+  groupLabels?: Partial<Record<PositionGroup, string>>
   seasons: string[] // oldest first
   currentSeason: string
   nations: Nation[]

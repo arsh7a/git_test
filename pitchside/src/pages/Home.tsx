@@ -3,7 +3,7 @@ import { ClubBadge, Flag, PlayerAvatar } from '../components/Identity'
 import { SearchBox } from '../components/SearchBox'
 import { Panel } from '../components/UI'
 import { MIN_MINUTES, dataset, getSeasonRows, leaders, type SeasonRow } from '../data'
-import { GROUP_SHORT, METRIC } from '../data/metrics'
+import { GROUP_SHORT, METRIC, firstAvailable } from '../data/metrics'
 import { formatMetric } from '../lib/format'
 
 const season = dataset.currentSeason
@@ -11,37 +11,44 @@ const season = dataset.currentSeason
 function pickFeatured() {
   const rows = getSeasonRows(season).filter((r) => r.stats.mins >= MIN_MINUTES)
   const used = new Set<string>()
-  const best = (label: string, metricId: string, filter: (r: SeasonRow) => boolean, per90: boolean) => {
+  // `metricIds` are in order of preference; the first one the data source has is used.
+  const best = (label: string, metricIds: string[], filter: (r: SeasonRow) => boolean, per90: boolean) => {
+    const metricId = firstAvailable(...metricIds)
+    if (!metricId) return null
     const m = METRIC[metricId]
     const list = rows
       .filter((r) => filter(r) && !used.has(r.player.id))
       .map((r) => ({ r, v: (m.per90 && per90 ? m.value(r.stats)! / (r.stats.mins / 90) : m.value(r.stats)) ?? -Infinity }))
       .sort((x, y) => y.v - x.v)
     const top = list[0]
+    if (!top) return null
     used.add(top.r.player.id)
     return { label, row: top.r, value: formatMetric(m, top.v, per90 && m.per90), unit: `${m.short}${per90 && m.per90 ? ' per 90' : ''}` }
   }
   return [
-    best('Top scorer', 'goals', () => true, false),
-    best('Chief creator', 'xag', (r) => ['AM', 'W', 'CM'].includes(r.player.group), true),
-    best('Ball progressor', 'progPasses', (r) => ['CM', 'DM'].includes(r.player.group), true),
-    best('Defensive anchor', 'tklInt', (r) => ['CB', 'DM', 'FB'].includes(r.player.group), true),
-    best('Shot stopper', 'psxgDiff', (r) => r.player.group === 'GK', false),
-    best('Rising talent (U21)', 'npxgXag', (r) => r.age <= 21, true),
-  ]
+    best('Top scorer', ['goals'], () => true, false),
+    best('Chief creator', ['xag', 'keyPasses'], (r) => ['AM', 'W', 'CM'].includes(r.player.group), true),
+    best('Ball progressor', ['progPasses', 'progCarries', 'dribblesSucc'], (r) => ['CM', 'DM'].includes(r.player.group), true),
+    best('Defensive anchor', ['tklInt'], (r) => ['CB', 'DM', 'FB'].includes(r.player.group), true),
+    best('Shot stopper', ['psxgDiff', 'savePct'], (r) => r.player.group === 'GK', false),
+    best('Rising talent (U21)', ['npxgXag', 'ga'], (r) => r.age <= 21, true),
+  ].filter((f) => f != null)
 }
 
 const featured = pickFeatured()
 
+// Expected-goal stats fall back to goal involvement when the data source has no xG.
+const INVOLVEMENT = firstAvailable('npxgXag', 'ga')!
+
 const LEADER_BOARDS = [
   { title: 'Goals', metricId: 'goals', per90: false, minMins: 0 },
   { title: 'Assists', metricId: 'assists', per90: false, minMins: 0 },
-  { title: 'npxG + xAG per 90', metricId: 'npxgXag', per90: true, minMins: MIN_MINUTES },
+  { title: `${METRIC[INVOLVEMENT].short} per 90`, metricId: INVOLVEMENT, per90: true, minMins: MIN_MINUTES },
   { title: 'Tkl + Int per 90', metricId: 'tklInt', per90: true, minMins: MIN_MINUTES },
 ]
 
 export function Home() {
-  const popular = leaders(season, 'npxgXag', { limit: 6 })
+  const popular = leaders(season, INVOLVEMENT, { limit: 6 })
 
   return (
     <div className="home">
@@ -79,7 +86,7 @@ export function Home() {
           </Link>
         </div>
 
-        <Panel title="Featured players" actions={<span className="panel-meta">{season} · sample data</span>}>
+        <Panel title="Featured players" actions={<span className="panel-meta">{season}{dataset.isSample ? ' · sample data' : ''}</span>}>
           <div className="featured">
             {featured.map((f) => (
               <Link key={f.label} to={`/players/${f.row.player.id}`} className="fcard">

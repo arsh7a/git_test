@@ -56,6 +56,8 @@ export interface Player {
   name: string
   firstName: string
   lastName: string
+  /** Full legal name, when it is not simply first + last name. */
+  fullName?: string
   birthDate?: string // YYYY-MM-DD; not every source has it
   nationCode: string
   heightCm: number

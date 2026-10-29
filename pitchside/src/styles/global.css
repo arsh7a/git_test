@@ -429,6 +429,13 @@ button, input, select {
   border: 1px solid var(--border);
 }
 .avatar svg { display: block; }
+.avatar-photo {
+  display: block;
+  object-fit: cover;
+  background: var(--surface-3);
+  border-bottom: 3px solid; /* colour set to the club's */
+}
+.club-crest { object-fit: contain; }
 .avatar-bg { fill: var(--surface-3); }
 .avatar-fg { fill: var(--border-strong); }
 

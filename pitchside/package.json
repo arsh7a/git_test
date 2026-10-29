@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "data:statsbomb": "tsx scripts/statsbomb.ts"
+    "data:statsbomb": "tsx scripts/statsbomb.ts",
+    "data:wikidata": "tsx scripts/wikidata.ts",
+    "data:images": "tsx scripts/images.ts"
   },
   "dependencies": {
     "react": "^19.3.1",
@@ -21,6 +23,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "oxlint": "^1.89.0",
+    "sharp": "^0.34.4",
     "tsx": "^4.23.15",
     "typescript": "~7.0.2",
     "vite": "^8.3.5"

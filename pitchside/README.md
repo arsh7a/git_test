@@ -38,6 +38,7 @@ npm run build
 | `src/data/sample/` | The sample-data generator (fictional names, clubs, stats). |
 | `src/data/metrics.ts` | Every statistic: its label, explanation, formula, and which stats appear on radars, percentile panels and tables. |
 | `scripts/statsbomb.ts` | Downloads StatsBomb Open Data and converts it to the site's format. |
+| `scripts/wikidata.ts`, `scripts/images.ts` | Player and club details, crests and photos from Wikidata / Wikimedia Commons. |
 | `src/data/source.ts` | Chooses real data (if downloaded) or sample data. |
 | `src/data/index.ts` | **The single entry point for data.** Lookups, search, percentiles, similar players, leaderboards. |
 | `src/components/` | Reusable pieces: charts, tables, search box, navigation. |
@@ -63,6 +64,30 @@ rebuilds the season from the cache without downloading. Run the site as usual
 afterwards. It uses the real data whenever that file exists; delete the file to
 go back to sample data.
 
+**Ages, heights, club colours, crests and photos** come from Wikidata and
+Wikimedia Commons, which StatsBomb's data does not include. After the command
+above:
+
+```bash
+npm run data:wikidata
+```
+
+```bash
+npm run data:statsbomb -- --build-only
+```
+
+```bash
+npm run data:images
+```
+
+The first matches clubs and players to Wikidata by name (about 85% of players
+match; ambiguous names are skipped rather than guessed). The second folds the
+birth dates, heights and colours into the data. The third downloads freely
+licensed crests and photos from Commons into `src/data/real/images.json`; each
+photo on a profile links to its Commons page, which credits the author and
+licence. Most big clubs' crests are not freely licensed, so those clubs keep
+the drawn badge.
+
 **StatsBomb's terms** (`LICENSE.pdf` in their repository): the data is for
 research and non-commercial use; it may not be redistributed, which is why it
 is not committed here; anything published from it must credit StatsBomb with
@@ -82,8 +107,8 @@ Pitchside's own approximations of the usual ones:
   successful dribbles, shots, fouls won) before a shot or goal in the same
   possession.
 
-Not in the open data, so hidden: match ratings, post-shot xG (so no "goals
-prevented"), players' birth dates (so no ages) and heights.
+Not in the open data, so hidden: match ratings and post-shot xG (so no "goals
+prevented").
 
 ### How the data switch works
 

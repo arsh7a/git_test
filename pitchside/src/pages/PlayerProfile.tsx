@@ -86,12 +86,13 @@ function ProfileHeader({ player, season, seasons, onSeason }: { player: Player; 
   const club = getClub(player.clubId)!
   const league = getLeague(club.leagueId)!
   const nation = getNation(player.nationCode)
-  const age = ageOn(player.birthDate)
+  // Age during the season being shown, which is what matters on a season's stats page.
+  const age = getPlayerSeason(player.id, season)?.age ?? ageOn(player.birthDate)
   return (
     <header className="phead">
       <div className="phead-stripe" style={{ background: `linear-gradient(90deg, ${club.colors[0]} 0 50%, ${club.colors[1]} 50% 100%)` }} />
       <div className="phead-main">
-        <PlayerAvatar player={player} size={92} />
+        <PlayerAvatar player={player} size={92} credit />
         <div className="phead-id">
           <div className="phead-top">
             {player.shirtNumber != null && <span className="shirt num" title="Shirt number">{player.shirtNumber}</span>}
@@ -112,7 +113,7 @@ function ProfileHeader({ player, season, seasons, onSeason }: { player: Player; 
           </div>
         </div>
         <dl className="phead-facts">
-          {player.birthDate && <div><dt>Age</dt><dd className="num">{age}</dd><dd className="sub">{formatDate(player.birthDate)}</dd></div>}
+          {player.birthDate && <div><dt>Age in {season}</dt><dd className="num">{age}</dd><dd className="sub">{formatDate(player.birthDate)}</dd></div>}
           {player.heightCm > 0 && <div><dt>Height</dt><dd className="num">{player.heightCm} cm</dd></div>}
           {player.foot && <div><dt>Foot</dt><dd>{player.foot}</dd></div>}
           {player.contractUntil && <div><dt>Contract</dt><dd className="num">Jun {player.contractUntil}</dd></div>}
@@ -186,7 +187,7 @@ function PlayerDetails({ player }: { player: Player }) {
   return (
     <Panel title="Details">
       <dl className="details">
-        <dt>Full name</dt><dd>{player.firstName} {player.lastName}</dd>
+        <dt>Full name</dt><dd>{player.fullName ?? `${player.firstName} ${player.lastName}`}</dd>
         {player.birthDate && <><dt>Date of birth</dt><dd>{formatDate(player.birthDate)} ({ageOn(player.birthDate)})</dd></>}
         <dt>Nationality</dt><dd><Flag code={player.nationCode} size={11} /> {getNation(player.nationCode)?.name}</dd>
         {player.heightCm > 0 && <><dt>Height</dt><dd>{player.heightCm} cm</dd></>}

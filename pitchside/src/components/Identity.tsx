@@ -1,7 +1,8 @@
 import { getClub, getNation } from '../data'
+import { useImage } from '../data/images'
 import type { FlagSpec, Player } from '../data/types'
 
-// Small visual identity pieces: flags, club badges and player placeholders.
+// Small visual identity pieces: flags, club badges and player pictures (real images when available, drawn otherwise).
 
 function FlagShapes({ spec }: { spec: FlagSpec }) {
   const W = 30
@@ -77,7 +78,9 @@ export function Flag({ code, size = 16 }: { code: string; size?: number }) {
 
 export function ClubBadge({ clubId, size = 20 }: { clubId: string; size?: number }) {
   const club = getClub(clubId)
+  const crest = useImage('clubs', clubId)
   if (!club) return null
+  if (crest) return <img className="club-badge club-crest" src={crest.src} width={size} height={size * 1.15} alt={club.name} title={club.name} />
   const [a, b] = club.colors
   const showText = size >= 34
   return (
@@ -95,9 +98,15 @@ export function ClubBadge({ clubId, size = 20 }: { clubId: string; size?: number
   )
 }
 
-export function PlayerAvatar({ player, size = 96 }: { player: Player; size?: number }) {
+export function PlayerAvatar({ player, size = 96, credit = false }: { player: Player; size?: number; credit?: boolean }) {
   const club = getClub(player.clubId)
+  const photo = useImage('players', player.id)
   const accent = club?.colors[0] ?? '#888'
+  if (photo) {
+    const img = <img className="avatar avatar-photo" src={photo.src} width={size} height={size} alt={player.name} style={{ borderBottomColor: accent }} />
+    // On the profile, the photo links to its Commons page (author and licence), as the licences require.
+    return credit ? <a href={photo.creditUrl} target="_blank" rel="noreferrer" title="Photo: Wikimedia Commons — author and licence">{img}</a> : img
+  }
   return (
     <div className="avatar" style={{ width: size, height: size }} aria-hidden="true">
       <svg viewBox="0 0 100 100" width={size} height={size}>

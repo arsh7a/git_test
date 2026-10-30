@@ -152,9 +152,6 @@ export const METRIC = Object.fromEntries(METRICS.map((m) => [m.id, m])) as Recor
 export const hasMetric = (id: string) => id in METRIC
 const onlyAvailable = (ids: string[]) => ids.filter(hasMetric)
 
-/** The first of these metrics the data source supports, for places that need a single stat. */
-export const firstAvailable = (...ids: string[]): string | undefined => ids.find(hasMetric)
-
 /** Value as shown: per 90 for counting stats when `per90` is requested. */
 export function metricValue(m: Metric, s: StatLine, per90: boolean): number | null {
   if (m.minVolume && !m.minVolume(s)) return null

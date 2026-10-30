@@ -7,6 +7,7 @@ import { Panel, SampleBadge, SeasonSelect, StatTile } from '../components/UI'
 import {
   MIN_MINUTES,
   ageOn,
+  clubsInLeague,
   hasAges,
   dataset,
   defaultSeasonFor,
@@ -142,7 +143,7 @@ function SeasonSummary({ player, row }: { player: Player; row: PlayerSeason }) {
     <Panel title={`${row.season} season`} actions={<span className="panel-meta"><ClubBadge clubId={club.id} size={13} /> {club.shortName} · {league.name}</span>}>
       <div className="tiles">
         <StatTile label="Appearances" value={s.apps} sub={`${s.starts} starts`} />
-        <StatTile label="Minutes" value={s.mins.toLocaleString('en-GB')} sub={`${Math.round((s.mins / (league.matchesPerSeason * 90)) * 100)}% of max`} />
+        <StatTile label="Minutes" value={s.mins.toLocaleString('en-GB')} sub={`${Math.round((s.mins / ((clubsInLeague(league.id, row.season).length - 1) * 2 * 90)) * 100)}% of max`} />
         {player.group === 'GK' ? (
           <>
             {hasMetric('cleanSheets') ? (

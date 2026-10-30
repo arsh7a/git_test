@@ -63,12 +63,22 @@ function overlap(a: Set<string>, b: Set<string>) {
   return shared / Math.max(1, Math.min(a.size, b.size)) + (0.5 * shared) / Math.max(1, a.size, b.size)
 }
 
+// Wikidata items of the leagues, for finding a season by league and start year.
+const LEAGUE_ITEMS: Record<string, string> = { 'Premier League': 'Q9448', 'La Liga': 'Q324867', 'Serie A': 'Q15804', Bundesliga: 'Q82595', 'Ligue 1': 'Q13394' }
+
 /** The Wikidata item for a league's season, e.g. "2015–16 Premier League" (the one listing its clubs). */
 async function seasonItem(league: string, season: string, cache: Record<string, string>): Promise<string | undefined> {
   const label = `${season.slice(0, 4)}–${season.slice(5, 7)} ${league}` // "2015-16" → "2015–16"
   if (cache[label]) return cache[label]
-  const rows = await sparql(`
+  let rows = await sparql(`
     SELECT ?s (COUNT(?t) AS ?n) WHERE { ?s rdfs:label "${label}"@en . ?s wdt:P1923 ?t } GROUP BY ?s ORDER BY DESC(?n) LIMIT 1`)
+  // Not every season item carries the usual name: look for "season of <league>" starting that year instead.
+  if (!rows[0] && LEAGUE_ITEMS[league]) {
+    rows = await sparql(`
+      SELECT ?s (COUNT(?t) AS ?n) WHERE {
+        ?s wdt:P3450 wd:${LEAGUE_ITEMS[league]} ; wdt:P580 ?start ; wdt:P1923 ?t . FILTER(YEAR(?start) = ${season.slice(0, 4)})
+      } GROUP BY ?s ORDER BY DESC(?n) LIMIT 1`)
+  }
   if (rows[0]) cache[label] = qid(rows[0].s.value)
   return cache[label]
 }
@@ -86,21 +96,25 @@ async function main() {
     const playerById = new Map(dataset.players.map((p) => [p.id, p]))
     const clubQid = new Map<string, string>()
     const squads = new Map<string, Json[]>()
+    // A club's identity item plus the item the season listed, when they differ (players may point to either).
+    const teamItems = new Map<string, Set<string>>()
 
     for (const league of dataset.leagues) {
       for (const season of dataset.seasons) {
         const rows = dataset.playerSeasons.filter((r) => r.leagueId === league.id && r.season === season)
         if (!rows.length) continue
         const item = await seasonItem(league.name, season, seasonCache)
-        if (!item) {
-          report.push(`  ${league.name} ${season}: no Wikidata season item`)
-          continue
-        }
+        if (!item) report.push(`  ${league.name} ${season}: no Wikidata season item (clubs known from other seasons still match)`)
 
-        // Clubs: crest (P154) and official colours (P6364 → hex P465).
-        const teams = await sparql(`
-          SELECT ?team ?teamLabel (SAMPLE(?logo) AS ?logo) (GROUP_CONCAT(DISTINCT ?hex; separator="|") AS ?hexes) WHERE {
-            wd:${item} wdt:P1923 ?team .
+        // Clubs: crest (P154) and official colours (P6364 → hex P465). Some seasons list a club's
+        // "men's team" item, which is part of (P361) the club that players' histories point to.
+        const teams = !item
+          ? []
+          : await sparql(`
+          SELECT ?team ?teamLabel (SAMPLE(?listed) AS ?listedItem) (SAMPLE(?logo) AS ?logo) (GROUP_CONCAT(DISTINCT ?hex; separator="|") AS ?hexes) WHERE {
+            wd:${item} wdt:P1923 ?listed .
+            OPTIONAL { ?listed wdt:P31 wd:Q103229495 ; wdt:P361 ?parent }
+            BIND(COALESCE(?parent, ?listed) AS ?team)
             OPTIONAL { ?team wdt:P154 ?logo }
             OPTIONAL { ?team wdt:P6364 ?color . ?color wdt:P465 ?hex }
             SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
@@ -118,6 +132,7 @@ async function main() {
           if (clubQid.has(club.id) || taken.has(qid(t.team.value))) continue
           taken.add(qid(t.team.value))
           clubQid.set(club.id, qid(t.team.value))
+          teamItems.set(qid(t.team.value), new Set([qid(t.team.value), qid(t.listedItem?.value ?? t.team.value), ...(teamItems.get(qid(t.team.value)) ?? [])]))
           matches.clubs[club.id] = {
             qid: qid(t.team.value),
             label: t.teamLabel.value,
@@ -125,7 +140,7 @@ async function main() {
             colors: t.hexes?.value ? t.hexes.value.split('|').map((h: string) => `#${h.toLowerCase()}`) : undefined,
           }
         }
-        for (const club of clubs) if (!clubQid.has(club.id)) report.push(`  no Wikidata club for ${club.name} (${league.name} ${season})`)
+        if (item) for (const club of clubs) if (!clubQid.has(club.id)) report.push(`  no Wikidata club for ${club.name} (${league.name} ${season})`)
 
         // Players: everyone Wikidata lists at each club during this source's period, with any names they go by.
         // One query per club keeps each well inside the query service's time limit.
@@ -136,7 +151,8 @@ async function main() {
             await sparql(`
               SELECT ?p ?pLabel (SAMPLE(?img) AS ?img) (SAMPLE(?dob) AS ?dob) (SAMPLE(?h) AS ?h)
                      (GROUP_CONCAT(DISTINCT ?alt; separator="|") AS ?alts) WHERE {
-                ?p p:P54 ?st . ?st ps:P54 wd:${team} .
+                VALUES ?club { ${[...(teamItems.get(team) ?? [team])].map((q) => `wd:${q}`).join(' ')} }
+                ?p p:P54 ?st . ?st ps:P54 ?club .
                 OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end }
                 FILTER(!BOUND(?start) || ?start <= "${source.to}T00:00:00Z"^^xsd:dateTime)
                 FILTER(!BOUND(?end) || ?end >= "${source.from}T00:00:00Z"^^xsd:dateTime)

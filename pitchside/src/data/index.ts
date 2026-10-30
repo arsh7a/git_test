@@ -251,7 +251,12 @@ export function similarPlayers(playerId: string, season: string, limit = 5) {
 // Leagues & clubs
 // ---------------------------------------------------------------------------
 
-export const clubsInLeague = (leagueId: string) => dataset.clubs.filter((c) => c.leagueId === leagueId)
+/** Clubs in a league: in a given season (leagues change through promotion and relegation), or currently. */
+export function clubsInLeague(leagueId: string, season?: string): Club[] {
+  if (!season) return dataset.clubs.filter((c) => c.leagueId === leagueId)
+  const ids = new Set(dataset.playerSeasons.filter((r) => r.leagueId === leagueId && r.season === season).map((r) => r.clubId))
+  return dataset.clubs.filter((c) => ids.has(c.id))
+}
 export const currentSquad = (clubId: string) => dataset.players.filter((p) => p.clubId === clubId)
 
 export function leaders(
@@ -287,7 +292,7 @@ export interface ClubSeasonSummary {
 /** Team totals built by adding up the players' sample stats. */
 export function clubSummaries(leagueId: string, season: string): ClubSeasonSummary[] {
   const rows = getSeasonRows(season).filter((r) => r.league.id === leagueId)
-  return clubsInLeague(leagueId).map((club) => {
+  return clubsInLeague(leagueId, season).map((club) => {
     const mine = rows.filter((r) => r.club.id === club.id)
     // Average age counts only players whose age is known.
     const aged = mine.filter((r) => r.age != null)

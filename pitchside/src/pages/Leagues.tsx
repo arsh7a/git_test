@@ -2,8 +2,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DataTable, type Column } from '../components/DataTable'
 import { ClubBadge, Flag } from '../components/Identity'
 import { Panel, SampleBadge, SeasonSelect } from '../components/UI'
-import { MIN_MINUTES, hasAges, clubSummaries, clubsInLeague, dataset, getLeague, getSeasonRows, leaders, type ClubSeasonSummary } from '../data'
-import { METRIC, firstAvailable, hasMetric } from '../data/metrics'
+import { MIN_MINUTES, hasAges, clubSummaries, clubsInLeague, dataset, getLeague, getSeasonRows, leaders, measuredInSeason, type ClubSeasonSummary } from '../data'
+import { METRIC } from '../data/metrics'
 import { fixed, formatMetric } from '../lib/format'
 import { NotFound } from './NotFound'
 
@@ -23,7 +23,7 @@ export function Leagues() {
         {dataset.leagues.map((l) => {
           const scorer = leaders(season, 'goals', { leagueId: l.id, limit: 1 })[0]
           const creator = leaders(season, 'assists', { leagueId: l.id, limit: 1 })[0]
-          const keeperStat = firstAvailable('cleanSheets', 'saves')!
+          const keeperStat = ['cleanSheets', 'saves'].find((id) => measuredInSeason(id, season))!
           const keeper = leaders(season, keeperStat, { leagueId: l.id, limit: 1 })[0]
           const players = getSeasonRows(season).filter((r) => r.league.id === l.id).length
           return (
@@ -32,7 +32,7 @@ export function Leagues() {
                 <Flag code={l.nationCode} size={18} />
                 <div>
                   <div className="league-name">{l.name}</div>
-                  <div className="muted small">{l.country} · {clubsInLeague(l.id).length} clubs · {players} players</div>
+                  <div className="muted small">{l.country} · {clubsInLeague(l.id, season).length} clubs · {players} players</div>
                 </div>
               </div>
               <dl className="league-leaders">
@@ -48,21 +48,24 @@ export function Leagues() {
   )
 }
 
-// Boards whose stat the data source lacks fall back to a stand-in, or are left out.
-const BOARDS = [
+// Boards whose stat the season's source lacks fall back to a stand-in, or are left out.
+const boardsFor = (season: string) => {
+  const has = (id: string) => measuredInSeason(id, season)
+  return [
   { title: 'Goals', metricId: 'goals', per90: false, minMins: 0 },
   { title: 'Assists', metricId: 'assists', per90: false, minMins: 0 },
-  hasMetric('xag')
+  has('xag')
     ? { title: 'xAG per 90', metricId: 'xag', per90: true, minMins: MIN_MINUTES }
     : { title: 'Key passes per 90', metricId: 'keyPasses', per90: true, minMins: MIN_MINUTES },
-  hasMetric('progCarries')
+  has('progCarries')
     ? { title: 'Prog. carries per 90', metricId: 'progCarries', per90: true, minMins: MIN_MINUTES }
     : { title: 'Dribbles per 90', metricId: 'dribblesSucc', per90: true, minMins: MIN_MINUTES },
   { title: 'Tkl + Int per 90', metricId: 'tklInt', per90: true, minMins: MIN_MINUTES },
-  hasMetric('cleanSheets')
+  has('cleanSheets')
     ? { title: 'Clean sheets', metricId: 'cleanSheets', per90: false, minMins: 0 }
     : { title: 'Saves', metricId: 'saves', per90: false, minMins: 0 },
-].filter((b) => hasMetric(b.metricId))
+].filter((b) => has(b.metricId))
+}
 
 export function LeagueDetail() {
   const { id = '' } = useParams()
@@ -79,9 +82,9 @@ export function LeagueDetail() {
     { key: 'used', label: 'Players', title: 'Players used', align: 'right', sortValue: (r) => r.playersUsed, render: (r) => r.playersUsed },
     ...(hasAges ? [{ key: 'age', label: 'Avg age', title: 'Average age, weighted by minutes played', align: 'right', sortValue: (r) => r.avgAge, render: (r) => r.avgAge.toFixed(1) } as Column<ClubSeasonSummary>] : []),
     { key: 'goals', label: 'GF', title: 'Goals scored', align: 'right', sortValue: (r) => r.goals, render: (r) => r.goals },
-    ...(hasMetric('xg') ? [{ key: 'xg', label: 'xG', title: 'Expected goals', align: 'right', sortValue: (r) => r.xg, render: (r) => fixed(r.xg) } as Column<ClubSeasonSummary>] : []),
+    ...(measuredInSeason('xg', season) ? [{ key: 'xg', label: 'xG', title: 'Expected goals', align: 'right', sortValue: (r) => r.xg, render: (r) => fixed(r.xg) } as Column<ClubSeasonSummary>] : []),
     { key: 'ga', label: 'GA', title: 'Goals conceded', align: 'right', sortValue: (r) => r.goalsAgainst, render: (r) => r.goalsAgainst },
-    ...(hasMetric('psxg') ? [{ key: 'psxg', label: 'PSxG faced', title: 'Post-shot expected goals faced by the goalkeepers', align: 'right', sortValue: (r) => r.xga, render: (r) => fixed(r.xga) } as Column<ClubSeasonSummary>] : []),
+    ...(measuredInSeason('psxg', season) ? [{ key: 'psxg', label: 'PSxG faced', title: 'Post-shot expected goals faced by the goalkeepers', align: 'right', sortValue: (r) => r.xga, render: (r) => fixed(r.xga) } as Column<ClubSeasonSummary>] : []),
     { key: 'gd', label: 'GD', title: 'Goal difference', align: 'right', sortValue: (r) => r.goals - r.goalsAgainst, render: (r) => <span className="num">{r.goals - r.goalsAgainst > 0 ? '+' : ''}{r.goals - r.goalsAgainst}</span> },
   ]
 
@@ -92,7 +95,7 @@ export function LeagueDetail() {
           <Flag code={league.nationCode} size={22} />
           <div>
             <h1>{league.name} <SampleBadge /></h1>
-            <p className="muted">{league.country} · {clubsInLeague(league.id).length} clubs · {league.matchesPerSeason} matches per season</p>
+            <p className="muted">{league.country} · {clubsInLeague(league.id, season).length} clubs · {(clubsInLeague(league.id, season).length - 1) * 2} matches per season</p>
           </div>
         </div>
         <SeasonSelect value={season} seasons={dataset.seasons} onChange={(s) => setParams({ season: s }, { replace: true })} />
@@ -103,7 +106,7 @@ export function LeagueDetail() {
       </Panel>
 
       <div className="leader-grid leader-grid-3">
-        {BOARDS.map((b) => (
+        {boardsFor(season).map((b) => (
           <Panel key={b.title} title={b.title} actions={b.minMins ? <span className="panel-meta">min {b.minMins} mins</span> : undefined} flush>
             <ol className="leaders">
               {leaders(season, b.metricId, { leagueId: league.id, per90: b.per90, minMins: b.minMins, limit: 5 }).map(({ row, value }, i) => (
